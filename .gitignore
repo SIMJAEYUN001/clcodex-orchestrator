@@ -1,8 +1,7 @@
 node_modules/
-dist/
-coverage/
 .env
-.harness/
 .runtime/
+.harness/
+coverage/
 *.log
 .DS_Store

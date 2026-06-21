@@ -1,0 +1,23 @@
+{
+  "name": "clcodex-orchestrator",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord-administered proxy and role-model routing for isolated Claude Code and Codex harnesses.",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "harness:install": "node scripts/install-harnesses.mjs",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "test": "node --test test/*.test.js",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check": "npm run check:syntax && npm test"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "node-pty": "^1.1.0"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  }
+}
