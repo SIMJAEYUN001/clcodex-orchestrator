@@ -1,7 +1,9 @@
-import { Client, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
 import { loadConfig } from './config.js';
 import { ProviderAdminUi } from './discord/provider-ui.js';
+import { RoleBotSupervisor } from './discord/role-bot-supervisor.js';
 import { RoleModelAdminUi } from './discord/role-model-ui.js';
+import { RoleOutputRouter } from './discord/role-output-router.js';
+import { ManagedHarnessRuntime } from './harness-runtime.js';
 import { ProxyNetworkPolicy } from './providers/network-policy.js';
 import { ProviderResolver } from './providers/resolver.js';
 import { ProviderService } from './providers/service.js';
@@ -26,48 +28,57 @@ const service = new ProviderService({
   networkPolicy,
   timeoutMs: config.requestTimeoutMs,
 });
-
-export const providerResolver = new ProviderResolver({ store, vault });
-export const providerService = service;
-
+const resolver = new ProviderResolver({ store, vault });
+const roleBots = new RoleBotSupervisor({
+  guildId: config.guildId,
+  forumChannelId: config.forumChannelId,
+  tokens: config.tokens,
+  service,
+  store,
+});
 const providerUi = new ProviderAdminUi({ guildId: config.guildId, service, store });
 const roleModelUi = new RoleModelAdminUi({
   guildId: config.guildId,
   forumChannelId: config.forumChannelId,
   service,
   store,
+  roleBots,
+});
+roleBots.setAdminHandlers([providerUi, roleModelUi]);
+
+const outputRouter = new RoleOutputRouter({
+  roleBots,
+  store,
+  flushIntervalMs: config.outputFlushIntervalMs,
+});
+const harnessRuntime = new ManagedHarnessRuntime({
+  resolver,
+  runtimeRoot: config.runtimeRoot,
+  harnessRoot: config.harnessRoot,
+  outputRouter,
 });
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-  allowedMentions: { parse: [] },
-});
+export const providerResolver = resolver;
+export const providerService = service;
+export const roleBotSupervisor = roleBots;
+export const roleOutputRouter = outputRouter;
+export const managedHarnessRuntime = harnessRuntime;
 
-client.once(Events.ClientReady, async (readyClient) => {
-  const rest = new REST({ version: '10' }).setToken(config.botToken);
-  await rest.put(Routes.applicationGuildCommands(readyClient.user.id, config.guildId), {
-    body: [providerUi.commandJson(), roleModelUi.commandJson()],
-  });
-  console.log(`Guild admin UIs registered as ${readyClient.user.tag}`);
-});
-
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (await providerUi.handle(interaction)) return;
-  await roleModelUi.handle(interaction);
-});
-
-client.on(Events.Error, (error) => {
-  console.error('Discord client error:', error instanceof Error ? error.message : String(error));
-});
-
-async function shutdown(signal) {
-  console.log(`Received ${signal}; shutting down`);
-  client.destroy();
+async function shutdown(signal, exitCode = 0) {
+  console.log(`Received ${signal}; shutting down four role bots`);
+  roleBots.destroy();
   store.close();
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
-await client.login(config.botToken);
+try {
+  const identities = await roleBots.start();
+  const connected = Object.values(identities).map((item) => `${item.role}:${item.tag}`).join(', ');
+  console.log(`Role bot supervisor ready: ${connected}`);
+} catch (error) {
+  console.error('Role bot startup failed:', error instanceof Error ? error.message : String(error));
+  await shutdown('startup-error', 1);
+}

@@ -6,7 +6,7 @@ import {
   SlashCommandBuilder,
   StringSelectMenuBuilder,
 } from 'discord.js';
-import { ROLES } from '../providers/store.js';
+import { ROLES, roleLabel } from '../roles.js';
 import {
   EPHEMERAL,
   UiSessionStore,
@@ -18,21 +18,14 @@ import {
 
 const PAGE_SIZE = 25;
 
-function roleLabel(role) {
-  return {
-    orchestrator: '오케스트레이터',
-    backend: '백엔드 코더',
-    frontend: '프론트엔드 코더',
-    reviewer: '리뷰어',
-  }[role] || role;
-}
 
 export class RoleModelAdminUi {
-  constructor({ guildId, forumChannelId, service, store }) {
+  constructor({ guildId, forumChannelId, service, store, roleBots = null }) {
     this.guildId = guildId;
     this.forumChannelId = forumChannelId;
     this.service = service;
     this.store = store;
+    this.roleBots = roleBots;
     this.ui = new UiSessionStore('rmui');
   }
 
@@ -168,7 +161,9 @@ export class RoleModelAdminUi {
     if (!effective) return `**${roleLabel(role)}** — 미지정`;
     const provider = providers.find((item) => item.id === effective.providerId);
     const inherited = session.scopeType === 'thread' && !explicit ? ' · 서버 기본값 상속' : '';
-    return `**${roleLabel(role)}** — ${compact(provider?.name || '삭제된 프로필', 60)} / \`${compact(effective.modelKey, 80)}\`${inherited}`;
+    const identity = this.roleBots?.identity(role);
+    const bot = identity?.mention || identity?.tag || '봇 미연결';
+    return `**${roleLabel(role)}** — ${bot} · ${compact(provider?.name || '삭제된 프로필', 60)} / \`${compact(effective.modelKey, 80)}\`${inherited}`;
   }
 
   panel(session) {
@@ -178,7 +173,7 @@ export class RoleModelAdminUi {
     const scopeName = session.scopeType === 'thread' ? '현재 포럼 스레드' : '서버 전체 기본값';
     const embed = new EmbedBuilder()
       .setTitle('역할별 모델 설정')
-      .setDescription(`적용 범위: **${scopeName}**\n이 명령과 UI는 서버 Administrator만 사용할 수 있습니다.`)
+      .setDescription(`적용 범위: **${scopeName}**\n관리 UI는 오케스트레이터 봇에서 열리며, 실제 작업 메시지는 선택된 역할의 전용 봇이 작성합니다.\n이 명령과 UI는 서버 Administrator만 사용할 수 있습니다.`)
       .addFields(
         { name: '현재 라우팅', value: ROLES.map((role) => this.assignmentLine(session, role, providers)).join('\n') },
         {
@@ -226,6 +221,7 @@ export class RoleModelAdminUi {
 
     components.push(new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(this.ui.id(session, 'save')).setLabel('역할 설정 저장').setStyle(ButtonStyle.Success).setDisabled(!provider || !session.selectedModel),
+      new ButtonBuilder().setCustomId(this.ui.id(session, 'preview')).setLabel('역할 봇 확인').setStyle(ButtonStyle.Primary).setDisabled(!provider || !session.selectedModel || !this.roleBots?.identity(session.selectedRole)?.ready),
       new ButtonBuilder().setCustomId(this.ui.id(session, 'clear')).setLabel('현재 범위 설정 해제').setStyle(ButtonStyle.Danger).setDisabled(!this.explicitBinding(session, session.selectedRole)),
       new ButtonBuilder().setCustomId(this.ui.id(session, 'refresh')).setLabel('새로고침').setStyle(ButtonStyle.Secondary),
     ));
@@ -246,7 +242,9 @@ export class RoleModelAdminUi {
       const selected = this.store.resolveBinding(this.guildId, threadId, role);
       if (!selected) return `**${roleLabel(role)}** — 미지정`;
       const provider = providers.find((item) => item.id === selected.providerId);
-      return `**${roleLabel(role)}** — ${compact(provider?.name || '삭제된 프로필', 60)} / \`${compact(selected.modelKey, 80)}\` (${selected.scopeType})`;
+      const identity = this.roleBots?.identity(role);
+      const bot = identity?.mention || identity?.tag || '봇 미연결';
+      return `**${roleLabel(role)}** — ${bot} · ${compact(provider?.name || '삭제된 프로필', 60)} / \`${compact(selected.modelKey, 80)}\` (${selected.scopeType})`;
     });
     return {
       embeds: [new EmbedBuilder()
@@ -271,6 +269,21 @@ export class RoleModelAdminUi {
 
   async button(interaction, session, action) {
     if (action === 'refresh') return interaction.update(this.panel(session));
+    if (action === 'preview') {
+      if (!this.roleBots) throw new Error('역할 봇 supervisor가 연결되지 않았습니다.');
+      const provider = this.service.list(session.guildId, true)
+        .find((item) => item.id === session.selectedProviderId);
+      if (!provider || !session.selectedModel) throw new Error('공급자와 모델을 먼저 선택하세요.');
+      await interaction.deferReply({ flags: EPHEMERAL });
+      await this.roleBots.sendPreview({
+        role: session.selectedRole,
+        channelId: interaction.channelId,
+        provider,
+        model: session.selectedModel,
+        scopeLabel: session.scopeType === 'thread' ? '현재 포럼 스레드' : '서버 전체 기본값',
+      });
+      return interaction.editReply(`${roleLabel(session.selectedRole)} 봇이 현재 채널에 확인 메시지를 전송했습니다.`);
+    }
     if (action === 'save') {
       this.service.bind({
         guildId: session.guildId,

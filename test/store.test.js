@@ -48,3 +48,18 @@ test('removing a model from the catalog clears stale role bindings', () => {
   assert.equal(store.resolveBinding('guild', null, 'backend'), null);
   store.close();
 });
+
+test('role work ledger keeps backend and frontend histories separate in the same thread', () => {
+  const store = new ProviderStore(':memory:');
+  store.appendWorkEvent({
+    guildId: 'guild', threadId: 'thread-1', role: 'backend', eventType: 'task.completed',
+    taskId: 'backend-1', summary: 'backend complete', metadata: { commitSha: 'a1' },
+  });
+  store.appendWorkEvent({
+    guildId: 'guild', threadId: 'thread-1', role: 'frontend', eventType: 'task.completed',
+    taskId: 'frontend-1', summary: 'frontend complete', metadata: { commitSha: 'b1' },
+  });
+  assert.deepEqual(store.listWorkEvents({ guildId: 'guild', threadId: 'thread-1', role: 'backend' }).map((item) => item.taskId), ['backend-1']);
+  assert.deepEqual(store.listWorkEvents({ guildId: 'guild', threadId: 'thread-1', role: 'frontend' }).map((item) => item.taskId), ['frontend-1']);
+  store.close();
+});

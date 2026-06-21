@@ -1,58 +1,112 @@
 # clcodex-orchestrator
 
-Discord 포럼 스레드와 역할별로 Claude Code·Codex 공급자/모델을 선택하는 관리 계층입니다. 공식 CLI는 프로젝트 안에만 설치하고, 프록시 API 키·모델 목록·역할 라우팅을 Discord 서버 명령어와 상호작용 UI로 관리합니다.
-
-## 이번 버전의 UI
-
-### `/providers panel`
-
-프록시 공급자를 관리합니다.
-
-- Claude Code 또는 Codex 프로필 생성
-- Base URL, 모델 목록 경로, 인증 방식 수정
-- API 키 직접 암호화 저장
-- 환경변수 또는 파일 secret 참조
-- 모델 ID 직접 편집 및 `/v1/models` 동기화
-- 연결 테스트
-- 활성화/비활성화와 삭제
-- 키 원문을 제외한 감사 로그
-
-### `/role-models panel`
-
-역할군별 모델을 관리합니다.
-
-- 오케스트레이터
-- 백엔드 코더
-- 프론트엔드 코더
-- 리뷰어
-
-UI에서 역할 → 공급자 → 모델 순서로 선택한 뒤 `역할 설정 저장`을 누릅니다.
-
-적용 범위는 다음 두 가지입니다.
-
-- **서버 전체 기본값**: 모든 프로젝트/스레드의 기본 라우팅
-- **현재 포럼 스레드**: 해당 프로젝트 스레드에만 적용되는 override
-
-스레드 override가 없으면 서버 전체 기본값을 자동 상속합니다. `현재 범위 설정 해제`를 누르면 스레드는 서버 기본값으로 복귀합니다.
-
-## 관리자 권한 정책
-
-두 명령은 Discord **guild command**로만 등록되며 DM 사용을 비활성화합니다.
+Discord 포럼에서 Claude Code와 Codex 기반 에이전트를 운영하는 **4-bot 역할 분리 control plane**입니다. 네 역할은 서로 다른 Discord Application/Bot 계정을 사용하며, 각 역할이 수행한 작업은 해당 봇의 이름·프로필 이미지·embed 색상으로 기록됩니다.
 
 ```text
-/providers ...
-/role-models ...
+Discord forum thread
+        │
+        ├─ Orchestrator Bot ─ 목표/상태/관리 UI/통합 결과
+        ├─ Backend Bot      ─ 백엔드 작업 진행/완료/commit
+        ├─ Frontend Bot     ─ 프론트엔드 작업 진행/완료/commit
+        └─ Reviewer Bot     ─ 리뷰 결과/재작업 요청/판정
+                  │
+         Shared supervisor + SQLite
+                  │
+        isolated Claude Code / Codex PTYs
 ```
 
-명령 정의에는 `Administrator`를 `default_member_permissions`로 설정합니다. interaction을 처리할 때도 다음 조건을 다시 검사합니다.
+한 프로세스가 네 gateway client를 관리하지만, Discord 상에서는 네 개의 독립된 bot account입니다. webhook이나 nickname 변경으로 역할을 흉내 내지 않습니다. token이 누락되거나 두 역할이 같은 token을 사용하면 startup을 거부합니다.
+
+## Discord 명령 배치
+
+### 오케스트레이터 봇
+
+관리·조정 명령만 오케스트레이터 봇에 등록됩니다.
 
 ```text
-서버 소유자
-또는
-Discord Administrator 권한 보유자
+/providers panel
+/providers audit
+/role-models panel
+/role-models status
+/role-bots status
+/orchestrator-model
+/orchestrator-history
 ```
 
-`Manage Server`만 가진 사용자나 별도 allowlist 사용자는 허용하지 않습니다. 권한은 UI를 처음 호출할 때뿐 아니라 버튼과 select menu를 누를 때마다 재검증합니다. 각 UI session은 호출한 사용자와 guild에 묶이고 15분 후 만료됩니다.
+`/providers`, `/role-models`, `/role-bots`는 Discord `Administrator` 권한이 있는 서버 관리자 또는 서버 소유자만 사용할 수 있습니다. DM에서는 등록되지 않으며 버튼과 select menu interaction에서도 권한을 다시 검사합니다.
+
+### 역할 봇
+
+각 bot application에는 자기 역할의 조회 명령만 등록됩니다.
+
+```text
+Backend Bot:  /backend-model,  /backend-history
+Frontend Bot: /frontend-model, /frontend-history
+Reviewer Bot: /reviewer-model, /reviewer-history
+```
+
+작업 실행 명령을 추가할 때는 해당 역할 client에만 handler를 연결합니다.
+
+```js
+roleBotSupervisor.addInteractionHandler('backend', async (interaction) => {
+  // backend 전용 Discord command 처리
+});
+```
+
+## 역할별 작업 기록
+
+`ManagedHarnessRuntime`은 role binding을 해석해 Claude Code 또는 Codex PTY를 시작합니다. `threadId`가 있으면 `RoleOutputRouter`가 해당 역할 봇으로 한 개의 작업 메시지를 전송하고 진행 중에는 메시지를 edit합니다.
+
+```js
+const session = managedHarnessRuntime.start({
+  guildId,
+  threadId,
+  role: 'backend',
+  goalId: 'goal-42',
+  taskId: 'backend-db-01',
+  title: 'DB migration 구현',
+  branch: 'agent/goal-42/backend-db-01',
+  cwd: assignedWorktree,
+});
+```
+
+작업 메시지에는 다음 정보가 포함됩니다.
+
+- 역할과 역할 전용 bot identity
+- 상태
+- goal/task ID
+- 하네스, provider, model
+- 전용 worktree branch
+- 최종 commit SHA
+- 최근 terminal output
+- 완료 또는 실패 요약
+
+터미널 출력은 일정 간격으로 batching하여 Discord spam을 방지합니다. ANSI control sequence를 제거하고 API key, bearer token, token/secret assignment 패턴을 redaction합니다. 시작·완료·실패 이벤트는 `role_work_events`에 저장되어 각 역할 봇의 `<role>-history` 명령으로 조회할 수 있습니다.
+
+## 역할별 모델 UI
+
+서버 관리자는 오케스트레이터 봇에서 다음 명령을 실행합니다.
+
+```text
+/role-models panel scope:서버 전체 기본값
+/role-models panel scope:현재 포럼 스레드
+```
+
+UI 흐름:
+
+```text
+역할 선택 → provider 선택 → model 선택 → 역할 설정 저장
+```
+
+각 역할 행에는 실제 연결된 bot mention이 함께 표시됩니다. `역할 봇 확인` 버튼을 누르면 선택한 역할 bot account가 현재 채널에 확인 embed를 직접 전송합니다. 따라서 model routing과 Discord identity가 올바르게 연결됐는지 배포 전에 확인할 수 있습니다.
+
+라우팅 우선순위:
+
+```text
+현재 forum thread override
+          ↓ 없으면
+server global binding
+```
 
 ## 설치
 
@@ -61,7 +115,7 @@ Discord Administrator 권한 보유자
 - Node.js 22.13 이상
 - Git
 - Linux 또는 macOS 권장
-- Discord 애플리케이션과 오케스트레이터 봇
+- 동일 guild에 초대한 서로 다른 Discord Bot 네 개
 
 ```bash
 npm install
@@ -71,9 +125,29 @@ npm run check
 npm start
 ```
 
-`node-pty`가 사전 빌드 바이너리를 제공하지 않는 환경에서는 C/C++ 빌드 도구와 현재 Node.js 버전의 개발 헤더가 필요할 수 있습니다.
+`.env`의 네 token은 반드시 서로 달라야 합니다.
 
-### 프로젝트 로컬 하네스
+```dotenv
+DISCORD_GUILD_ID=123456789012345678
+DISCORD_FORUM_CHANNEL_ID=123456789012345679
+DISCORD_ORCHESTRATOR_BOT_TOKEN=...
+DISCORD_BACKEND_BOT_TOKEN=...
+DISCORD_FRONTEND_BOT_TOKEN=...
+DISCORD_REVIEWER_BOT_TOKEN=...
+```
+
+각 bot에 필요한 guild/channel 권한:
+
+- View Channels
+- Send Messages
+- Send Messages in Threads
+- Read Message History
+- Use Application Commands
+- Embed Links
+
+Message Content privileged intent는 사용하지 않습니다.
+
+## 프로젝트 로컬 하네스
 
 ```text
 .harness/
@@ -84,162 +158,32 @@ npm start
     └── codex
 ```
 
-설치 스크립트는 `npm -g`를 사용하지 않으며 일반 `~/.claude`, `~/.codex`를 수정하지 않습니다.
+설치 스크립트는 `npm -g`를 사용하지 않으며 사용자의 일반 `~/.claude`, `~/.codex`를 수정하지 않습니다.
 
-## Discord 설정
+## Provider와 API key
 
-`.env`를 작성합니다.
+`/providers panel`에서 Claude Code 또는 Codex proxy profile을 생성하고 다음 방식을 사용할 수 있습니다.
 
-```dotenv
-DISCORD_GUILD_ID=123456789012345678
-DISCORD_FORUM_CHANNEL_ID=123456789012345679
-DISCORD_ORCHESTRATOR_BOT_TOKEN=...
-```
+- ENV secret reference
+- mode `0600` file reference
+- AES-256-GCM 직접 암호화 저장
 
-봇에는 application command를 등록하고 interaction에 응답할 권한이 필요합니다. 메시지 내용 privileged intent는 사용하지 않습니다.
+직접 입력한 key는 다시 표시되지 않습니다. 운영 환경에서는 ENV 또는 file reference를 권장합니다.
 
-실행 후 guild에 다음 명령이 등록됩니다.
+Claude Code proxy profile은 provider별 `CLAUDE_CONFIG_DIR`과 `apiKeyHelper` 또는 bearer token을 사용합니다. 두 credential mechanism을 동시에 활성화하지 않습니다. Codex profile은 provider별 `CODEX_HOME/config.toml`에 custom `model_providers` entry를 생성하고 key 원문 대신 전용 environment variable 이름을 기록합니다.
 
-```text
-/providers panel
-/providers audit
-/role-models panel scope:서버 전체 기본값
-/role-models panel scope:현재 포럼 스레드
-/role-models status
-```
+## 설정 변경 경계
 
-`현재 포럼 스레드` 범위는 `DISCORD_FORUM_CHANNEL_ID` 아래의 thread에서만 선택할 수 있습니다.
-
-## API 키 저장
-
-### ENV 참조 — 운영 권장
-
-```dotenv
-FRONTEND_PROXY_API_KEY=...
-```
-
-`/providers panel → API 키 → ENV 참조`에서 `FRONTEND_PROXY_API_KEY`를 입력합니다. SQLite에는 환경변수 이름만 저장됩니다.
-
-### 파일 참조 — 운영 권장
-
-기본 root:
-
-```text
-.runtime/external-secrets/
-```
-
-```bash
-install -m 600 /dev/null .runtime/external-secrets/frontend.key
-printf '%s' 'your-key' > .runtime/external-secrets/frontend.key
-```
-
-UI에는 `frontend.key`만 입력합니다. root 밖 경로와 root 밖으로 향하는 symlink는 거부됩니다.
-
-### 직접 입력·암호화
-
-Discord modal 값을 수신한 직후 AES-256-GCM으로 암호화합니다.
-
-- provider ID를 AAD로 사용
-- 랜덤 96-bit nonce
-- 인증 태그 저장
-- UI에는 마지막 네 글자 hint만 표시
-- 감사 로그에 원문 키 미기록
-
-마스터 키는 `PROVIDER_VAULT_MASTER_KEY`로 공급하거나 다음 위치에 mode `0600`으로 자동 생성합니다.
-
-```text
-.runtime/secrets/provider-master-key
-```
-
-직접 입력값은 암호화되기 전 Discord interaction 경로를 통과합니다. 민감도가 높은 배포에서는 ENV 또는 파일 참조를 사용하십시오.
-
-## Claude Code 프록시
-
-각 공급자마다 독립된 `CLAUDE_CONFIG_DIR`을 생성합니다.
-
-```text
-.runtime/harness-state/claude/<provider-id>/claude-config/
-```
-
-`api-key-helper` 방식에서는 `settings.json`에 helper 경로만 저장하고 키는 자식 프로세스의 전용 환경변수에만 전달합니다. `bearer` 방식에서는 helper를 제거한 뒤 해당 격리 프로세스에만 `ANTHROPIC_AUTH_TOKEN`을 설정합니다. 두 방식을 동시에 설정하지 않습니다.
-
-사용자의 전역 `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`은 managed child 환경으로 상속하지 않습니다.
-
-## Codex 프록시
-
-각 공급자마다 독립된 `CODEX_HOME/config.toml`을 생성합니다.
-
-```toml
-model = "selected-model"
-model_provider = "clcodex_<provider-id>"
-
-[model_providers.clcodex_<provider-id>]
-name = "provider name"
-base_url = "https://proxy.example.com/v1"
-env_key = "CLCODEX_PROFILE_API_KEY"
-wire_api = "responses"
-requires_openai_auth = false
-```
-
-키 원문은 TOML에 저장하지 않습니다. `x-api-key` 방식은 `env_http_headers`를 사용합니다. 사용자의 전역 `OPENAI_API_KEY`, `OPENAI_BASE_URL`은 managed child 환경으로 상속하지 않습니다.
-
-## 런타임 사용
-
-오케스트레이터는 새 세션을 시작할 때 역할의 현재 binding을 해석합니다.
-
-```js
-const session = runtime.start({
-  guildId,
-  threadId,
-  role: 'frontend',
-  cwd: assignedWorktree,
-  taskId,
-  onData(chunk) {
-    // Discord output router로 전달
-  },
-});
-```
-
-라우팅 우선순위:
-
-```text
-현재 forum thread binding
-        ↓ 없으면
-server global binding
-```
-
-설정 변경은 이미 실행 중인 하네스의 credential을 교체하지 않습니다. 새 agent session 또는 `/resume`으로 재생성되는 session부터 적용합니다.
-
-## 네트워크 방어
-
-- 원격 공급자는 HTTPS 필수
-- HTTP는 허용된 loopback 공급자에만 사용
-- URL 내 사용자명/비밀번호, query, fragment 거부
-- metadata, link-local, multicast, unspecified 주소 거부
-- private/CGNAT 주소는 `PROXY_ALLOWED_HOSTS`에 명시
-- redirect 거부
-- timeout 및 응답 크기 제한
-
-로컬 프록시:
-
-```dotenv
-ALLOW_LOOPBACK_PROXY=true
-ALLOW_INSECURE_LOOPBACK_PROXY=true
-```
-
-사설 호스트:
-
-```dotenv
-PROXY_ALLOWED_HOSTS=proxy.internal.example,*.ai.internal.example
-```
+Provider/model binding 변경은 실행 중인 PTY에 hot-swap하지 않습니다. 새 task session 또는 `/resume`으로 재생성된 session부터 새 설정을 사용합니다. 작업 메시지에는 session 시작 시 확정된 provider revision과 model을 사용하므로 실행 중 설정 변경으로 이력이 뒤섞이지 않습니다.
 
 ## 데이터 모델
 
-- `provider_profiles`: 하네스, endpoint, 인증 방식, revision
-- `provider_models`: 공급자별 model ID
+- `provider_profiles`: harness, endpoint, auth style, revision
+- `provider_models`: provider별 model catalog
 - `provider_secrets`: encrypted/env/file descriptor
-- `role_model_bindings`: global/thread 역할 라우팅
-- `provider_audit`: 원문 키를 제외한 변경 이력
+- `role_model_bindings`: global/thread 역할 routing
+- `provider_audit`: 관리자 변경 이력
+- `role_work_events`: 역할별 작업 lifecycle ledger
 
 ## 검증
 
@@ -248,19 +192,6 @@ npm run check
 npm audit --omit=dev
 ```
 
-검증 범위:
+검증 항목에는 네 bot token 고유성, admin command 격리, 역할별 command 배치, 역할별 work ledger, output credential redaction, provider/model routing, Claude/Codex config isolation이 포함됩니다.
 
-- guild command의 `Administrator` 기본 권한
-- DM 비활성화
-- 서버 소유자/Administrator 런타임 이중 검사
-- `Manage Server`만 가진 사용자의 거부
-- 네 역할군 독립 라우팅
-- thread override와 global 상속
-- 삭제된 모델의 stale binding 제거
-- AES-GCM과 provider-bound AAD
-- ENV/파일 secret reference
-- Claude `apiKeyHelper` 격리
-- Codex custom provider TOML 격리
-- SSRF 관련 주소 분류와 loopback 정책
-
-상세 설계는 [docs/role-model-ui.md](docs/role-model-ui.md)를 참고하십시오.
+상세 구조는 [docs/four-bot-topology.md](docs/four-bot-topology.md), [docs/role-model-ui.md](docs/role-model-ui.md), [docs/migrate-from-single-bot.md](docs/migrate-from-single-bot.md)를 참고하십시오.

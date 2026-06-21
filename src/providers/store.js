@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { ROLES } from '../roles.js';
 
-export const ROLES = ['orchestrator', 'backend', 'frontend', 'reviewer'];
+export { ROLES } from '../roles.js';
 const ROLE_SET = new Set(ROLES);
 const HARNESS_SET = new Set(['claude', 'codex']);
 const AUTH_SET = new Set(['api-key-helper', 'x-api-key', 'bearer']);
@@ -66,6 +67,26 @@ function binding(row) {
     modelKey: row.model_key,
     updatedBy: row.updated_by,
     updatedAt: row.updated_at,
+  };
+}
+
+function workEvent(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    guildId: row.guild_id,
+    threadId: row.thread_id,
+    goalId: row.goal_id,
+    taskId: row.task_id,
+    role: row.role,
+    eventType: row.event_type,
+    summary: row.summary,
+    providerId: row.provider_id,
+    modelKey: row.model_key,
+    botUserId: row.bot_user_id,
+    messageId: row.message_id,
+    metadata: parseJson(row.metadata_json),
+    createdAt: row.created_at,
   };
 }
 
@@ -140,10 +161,27 @@ export class ProviderStore {
         details_json TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS role_work_events (
+        id TEXT PRIMARY KEY,
+        guild_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        goal_id TEXT,
+        task_id TEXT,
+        role TEXT NOT NULL CHECK(role IN ('orchestrator','backend','frontend','reviewer')),
+        event_type TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        provider_id TEXT,
+        model_key TEXT,
+        bot_user_id TEXT,
+        message_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_profiles_guild ON provider_profiles(guild_id,enabled,name);
       CREATE INDEX IF NOT EXISTS idx_models_provider ON provider_models(provider_id,enabled,model_key);
       CREATE INDEX IF NOT EXISTS idx_bindings_lookup ON role_model_bindings(guild_id,scope_type,scope_id,role);
       CREATE INDEX IF NOT EXISTS idx_audit_guild ON provider_audit(guild_id,created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_role_work_lookup ON role_work_events(guild_id,thread_id,role,created_at DESC);
     `);
   }
 
@@ -413,6 +451,46 @@ export class ProviderStore {
         details: parseJson(row.details_json),
         createdAt: row.created_at,
       }));
+  }
+
+  appendWorkEvent(input) {
+    if (!ROLE_SET.has(input.role)) throw new Error(`Invalid role: ${input.role}`);
+    if (!input.guildId || !input.threadId || !input.eventType) {
+      throw new Error('Work events require guildId, threadId, and eventType');
+    }
+    const id = randomUUID();
+    this.db.prepare(`
+      INSERT INTO role_work_events(
+        id,guild_id,thread_id,goal_id,task_id,role,event_type,summary,
+        provider_id,model_key,bot_user_id,message_id,metadata_json,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      id,
+      input.guildId,
+      input.threadId,
+      input.goalId || null,
+      input.taskId || null,
+      input.role,
+      input.eventType,
+      String(input.summary || ''),
+      input.providerId || null,
+      input.modelKey || null,
+      input.botUserId || null,
+      input.messageId || null,
+      JSON.stringify(input.metadata || {}),
+      now(),
+    );
+    return workEvent(this.db.prepare('SELECT * FROM role_work_events WHERE id=?').get(id));
+  }
+
+  listWorkEvents({ guildId, threadId, role, limit = 10 }) {
+    if (!ROLE_SET.has(role)) throw new Error(`Invalid role: ${role}`);
+    const count = Math.max(1, Math.min(100, Number(limit) || 10));
+    return this.db.prepare(`
+      SELECT * FROM role_work_events
+      WHERE guild_id=? AND thread_id=? AND role=?
+      ORDER BY created_at DESC,id DESC LIMIT ?
+    `).all(guildId, threadId, role, count).map(workEvent);
   }
 
   close() {
