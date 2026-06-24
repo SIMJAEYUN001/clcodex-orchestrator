@@ -40,7 +40,7 @@ test('Codex custom provider config references a dedicated environment variable o
   });
   const config = readFileSync(path.join(launch.env.CODEX_HOME, 'config.toml'), 'utf8');
   assert.match(config, /model_provider = "clcodex_provider_codex"/);
-  assert.match(config, /env_key = "CLCODEX_PROFILE_API_KEY"/);
+  assert.match(config, /env_key = "CLCODEX_GATEWAY_TOKEN"/);
   assert.match(config, /requires_openai_auth = false/);
   assert.equal(config.includes('do-not-persist'), false);
   assert.equal(launch.env.OPENAI_API_KEY, undefined);

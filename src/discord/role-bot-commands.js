@@ -1,10 +1,9 @@
 import {
   EmbedBuilder,
   MessageFlags,
-  PermissionFlagsBits,
   SlashCommandBuilder,
 } from 'discord.js';
-import { roleDefinition, roleLabel } from '../roles.js';
+import { roleDefinition } from '../roles.js';
 import {
   compact,
   isServerAdministrator,
@@ -24,7 +23,7 @@ export function roleCommandJson(role) {
   return [
     new SlashCommandBuilder()
       .setName(`${definition.commandPrefix}-model`)
-      .setDescription(`${definition.label}에 현재 적용되는 공급자와 모델 확인`)
+      .setDescription(`${definition.label}에 현재 적용되는 provider와 model 확인`)
       .setDMPermission(false)
       .toJSON(),
     new SlashCommandBuilder()
@@ -69,7 +68,7 @@ export class RoleBotCommandHandler {
       const binding = this.store.resolveBinding(this.guildId, threadId, this.role);
       if (!binding) {
         await interaction.reply({
-          content: `${definition.label}에 적용된 모델이 없습니다. 서버 관리자가 /role-models panel에서 설정해야 합니다.`,
+          content: `${definition.label}에 적용된 모델이 없습니다. 서버 관리자가 오케스트레이터 봇의 /role-models panel에서 설정해야 합니다.`,
           flags: EPHEMERAL,
         });
         return true;
@@ -82,9 +81,9 @@ export class RoleBotCommandHandler {
         .addFields(
           { name: 'Discord 봇', value: identity?.mention || identity?.tag || '연결되지 않음', inline: true },
           { name: '하네스', value: provider?.harness || '알 수 없음', inline: true },
-          { name: '적용 범위', value: binding.scopeType === 'thread' ? '현재 포럼 스레드' : '서버 기본값', inline: true },
-          { name: '공급자', value: compact(provider?.name || '삭제된 프로필', 100), inline: true },
-          { name: '모델', value: `\`${compact(binding.modelKey, 100)}\``, inline: true },
+          { name: '적용 범위', value: binding.scopeType === 'thread' ? '현재 forum thread' : '서버 기본값', inline: true },
+          { name: 'Provider', value: compact(provider?.name || '삭제된 프로필', 100), inline: true },
+          { name: 'Model', value: `\`${compact(binding.modelKey, 100)}\``, inline: true },
         );
       await interaction.reply({ embeds: [embed], flags: EPHEMERAL });
       return true;
@@ -125,16 +124,16 @@ export async function handleRoleBotsStatus(interaction, { guildId, identities })
     await interaction.reply({ content: '서버 Administrator 권한이 필요합니다.', flags: EPHEMERAL });
     return true;
   }
-  const lines = Object.keys(identities()).map((role) => {
+  const all = identities();
+  const lines = Object.keys(all).map((role) => {
     const identity = identities(role);
-    const status = identity?.ready ? '온라인' : '오프라인';
-    return `**${roleLabel(role)}** — ${identity?.mention || identity?.tag || '미연결'} · ${status}`;
+    return `**${roleDefinition(role).label}** — ${identity?.mention || identity?.tag || '미연결'} · ${identity?.ready ? '온라인' : '오프라인'}`;
   });
   await interaction.reply({
     embeds: [new EmbedBuilder()
       .setTitle('역할별 Discord 봇 상태')
       .setDescription(lines.join('\n'))
-      .setFooter({ text: '관리 UI는 오케스트레이터 봇에만 등록됩니다.' })],
+      .setFooter({ text: '관리·설정 명령은 오케스트레이터 봇에만 등록됩니다.' })],
     flags: EPHEMERAL,
   });
   return true;

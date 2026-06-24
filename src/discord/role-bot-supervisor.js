@@ -22,7 +22,7 @@ export class RoleBotSupervisor {
     this.service = service;
     this.store = store;
     this.clients = new Map();
-    this.adminHandlers = [];
+    this.orchestratorHandlers = [];
     this.extraHandlers = new Map(ROLES.map((role) => [role, []]));
     this.validateTokens();
   }
@@ -35,8 +35,8 @@ export class RoleBotSupervisor {
     }
   }
 
-  setAdminHandlers(handlers) {
-    this.adminHandlers = [...handlers];
+  setOrchestratorHandlers(handlers) {
+    this.orchestratorHandlers = [...handlers];
   }
 
   addInteractionHandler(role, handler) {
@@ -62,7 +62,11 @@ export class RoleBotSupervisor {
     const commands = [...roleCommandJson(role)];
     if (role === 'orchestrator') {
       commands.push(roleBotsStatusCommandJson());
-      for (const handler of this.adminHandlers) commands.push(handler.commandJson());
+      for (const handler of this.orchestratorHandlers) {
+        const declared = handler.commandJson();
+        if (Array.isArray(declared)) commands.push(...declared);
+        else commands.push(declared);
+      }
     }
     return commands;
   }
@@ -75,7 +79,9 @@ export class RoleBotSupervisor {
         started.push(client);
       }
       const ids = ROLES.map((role) => this.clients.get(role)?.user?.id);
-      if (new Set(ids).size !== ROLES.length) throw new Error('Role bot accounts must have four unique Discord user IDs');
+      if (new Set(ids).size !== ROLES.length) {
+        throw new Error('Role bot accounts must have four unique Discord user IDs');
+      }
       return this.identity();
     } catch (error) {
       for (const client of started) client.destroy();
@@ -103,7 +109,8 @@ export class RoleBotSupervisor {
       await client.login(this.tokens[role]);
       await ready;
       const rest = new REST({ version: '10' }).setToken(this.tokens[role]);
-      await rest.put(Routes.applicationGuildCommands(client.user.id, this.guildId), {
+      const applicationId = client.application?.id || client.user.id;
+      await rest.put(Routes.applicationGuildCommands(applicationId, this.guildId), {
         body: this.commandsFor(role),
       });
       console.log(`[${role}] connected as ${client.user.tag}`);
@@ -121,7 +128,7 @@ export class RoleBotSupervisor {
         guildId: this.guildId,
         identities: (selectedRole) => selectedRole ? this.identity(selectedRole) : this.identity(),
       })) return true;
-      for (const handler of this.adminHandlers) {
+      for (const handler of this.orchestratorHandlers) {
         if (await handler.handle(interaction)) return true;
       }
     }
@@ -159,9 +166,9 @@ export class RoleBotSupervisor {
         title: `${definition.label} · 봇 연결 확인`,
         description: '이 역할의 작업 시작·진행·완료 메시지는 이 봇 계정으로 기록됩니다.',
         fields: [
-          { name: '공급자', value: provider?.name || '미지정', inline: true },
+          { name: 'Provider', value: provider?.name || '미지정', inline: true },
           { name: '하네스', value: provider?.harness || '미지정', inline: true },
-          { name: '모델', value: model ? `\`${model}\`` : '미지정', inline: true },
+          { name: 'Model', value: model ? `\`${model}\`` : '미지정', inline: true },
           { name: '설정 범위', value: scopeLabel, inline: true },
         ],
         timestamp: new Date().toISOString(),

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PermissionFlagsBits } from 'discord.js';
 import { loadRoleBotTokens } from '../src/config.js';
+import { HelpUi } from '../src/discord/help-ui.js';
 import { RoleBotSupervisor } from '../src/discord/role-bot-supervisor.js';
 import { ROLES } from '../src/roles.js';
 
@@ -41,14 +42,19 @@ test('configuration requires four distinct role bot tokens', () => {
   assert.throws(() => supervisor({ ...tokens(), reviewer: 'token-backend' }), /different Discord bot token/);
 });
 
-test('admin UI commands are registered only on the orchestrator application', () => {
+test('all management and help commands are registered only on the orchestrator application', () => {
   const instance = supervisor();
-  instance.setAdminHandlers([
+  const help = new HelpUi({ guildId: 'guild', roleBots: instance });
+  instance.setOrchestratorHandlers([
+    help,
+    { commandJson: () => ({ name: 'admin' }) },
     { commandJson: () => ({ name: 'providers' }) },
     { commandJson: () => ({ name: 'role-models' }) },
   ]);
   const names = Object.fromEntries(ROLES.map((role) => [role, instance.commandsFor(role).map((item) => item.name)]));
   assert.deepEqual(names.orchestrator.sort(), [
+    'admin',
+    'help',
     'orchestrator-history',
     'orchestrator-model',
     'providers',
@@ -59,13 +65,21 @@ test('admin UI commands are registered only on the orchestrator application', ()
   assert.deepEqual(names.frontend.sort(), ['frontend-history', 'frontend-model']);
   assert.deepEqual(names.reviewer.sort(), ['reviewer-history', 'reviewer-model']);
   for (const role of ['backend', 'frontend', 'reviewer']) {
-    assert.equal(names[role].includes('providers'), false);
-    assert.equal(names[role].includes('role-models'), false);
+    for (const management of ['admin', 'help', 'providers', 'role-models', 'role-bots']) {
+      assert.equal(names[role].includes(management), false, `${management} leaked to ${role}`);
+    }
   }
 });
 
-test('role-bots status command is administrator-only and unavailable in DMs', () => {
-  const command = supervisor().commandsFor('orchestrator').find((item) => item.name === 'role-bots');
-  assert.equal(command.default_member_permissions, PermissionFlagsBits.Administrator.toString());
-  assert.equal(command.dm_permission, false);
+test('role-bots status is administrator-only while help is guild-only and public', () => {
+  const instance = supervisor();
+  const help = new HelpUi({ guildId: 'guild', roleBots: instance });
+  instance.setOrchestratorHandlers([help]);
+  const commands = instance.commandsFor('orchestrator');
+  const status = commands.find((item) => item.name === 'role-bots');
+  const helpCommand = commands.find((item) => item.name === 'help');
+  assert.equal(status.default_member_permissions, PermissionFlagsBits.Administrator.toString());
+  assert.equal(status.dm_permission, false);
+  assert.equal(helpCommand.default_member_permissions, undefined);
+  assert.equal(helpCommand.dm_permission, false);
 });

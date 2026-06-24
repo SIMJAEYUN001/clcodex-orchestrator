@@ -173,7 +173,7 @@ export class RoleModelAdminUi {
     const scopeName = session.scopeType === 'thread' ? '현재 포럼 스레드' : '서버 전체 기본값';
     const embed = new EmbedBuilder()
       .setTitle('역할별 모델 설정')
-      .setDescription(`적용 범위: **${scopeName}**\n관리 UI는 오케스트레이터 봇에서 열리며, 실제 작업 메시지는 선택된 역할의 전용 봇이 작성합니다.\n이 명령과 UI는 서버 Administrator만 사용할 수 있습니다.`)
+      .setDescription(`적용 범위: **${scopeName}**\n관리·설정 명령은 오케스트레이터 봇에만 등록됩니다. 실제 작업 메시지는 선택된 역할의 전용 봇이 작성합니다.\n이 명령과 UI는 서버 Administrator만 사용할 수 있습니다.`)
       .addFields(
         { name: '현재 라우팅', value: ROLES.map((role) => this.assignmentLine(session, role, providers)).join('\n') },
         {
@@ -273,14 +273,14 @@ export class RoleModelAdminUi {
       if (!this.roleBots) throw new Error('역할 봇 supervisor가 연결되지 않았습니다.');
       const provider = this.service.list(session.guildId, true)
         .find((item) => item.id === session.selectedProviderId);
-      if (!provider || !session.selectedModel) throw new Error('공급자와 모델을 먼저 선택하세요.');
+      if (!provider || !session.selectedModel) throw new Error('Provider와 model을 먼저 선택하세요.');
       await interaction.deferReply({ flags: EPHEMERAL });
       await this.roleBots.sendPreview({
         role: session.selectedRole,
         channelId: interaction.channelId,
         provider,
         model: session.selectedModel,
-        scopeLabel: session.scopeType === 'thread' ? '현재 포럼 스레드' : '서버 전체 기본값',
+        scopeLabel: session.scopeType === 'thread' ? '현재 forum thread' : '서버 전체 기본값',
       });
       return interaction.editReply(`${roleLabel(session.selectedRole)} 봇이 현재 채널에 확인 메시지를 전송했습니다.`);
     }

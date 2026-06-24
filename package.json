@@ -1,9 +1,9 @@
 {
   "name": "clcodex-orchestrator",
-  "version": "0.4.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
-  "description": "Four-bot Discord control plane for isolated Claude Code and Codex role-model routing.",
+  "description": "Four-bot Discord control plane with an Open Codex-inspired admin UI, isolated Claude Code/Codex runtimes, and spec-driven orchestration.",
   "engines": {
     "node": ">=22.13.0"
   },

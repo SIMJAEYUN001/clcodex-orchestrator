@@ -12,7 +12,8 @@ export function sanitizeRoleOutput(value, maxLength = 3500) {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .replace(SK_SECRET, '[REDACTED]')
     .replace(BEARER_SECRET, '$1[REDACTED]')
-    .replace(NAMED_SECRET, '$1[REDACTED]');
+    .replace(NAMED_SECRET, '$1[REDACTED]')
+    .replace(/```/g, '`\u200b``');
   if (result.length > maxLength) result = `…${result.slice(-(maxLength - 1))}`;
   return result.trim();
 }
@@ -121,9 +122,9 @@ export class RoleOutputRouter {
       { name: 'Task', value: input.taskId ? `\`${compact(input.taskId, 100)}\`` : '미지정', inline: true },
       { name: 'Goal', value: input.goalId ? `\`${compact(input.goalId, 100)}\`` : '미지정', inline: true },
       { name: '하네스', value: compact(input.harness || '미지정', 100), inline: true },
-      { name: '공급자', value: compact(input.providerName || '미지정', 100), inline: true },
+      { name: 'Provider', value: compact(input.providerName || '미지정', 100), inline: true },
       { name: 'Provider rev', value: input.providerRevision == null ? '미지정' : String(input.providerRevision), inline: true },
-      { name: '모델', value: input.model ? `\`${compact(input.model, 100)}\`` : '미지정', inline: true },
+      { name: 'Model', value: input.model ? `\`${compact(input.model, 100)}\`` : '미지정', inline: true },
     ];
     if (input.branch) fields.push({ name: '작업 브랜치', value: `\`${compact(input.branch, 900)}\``, inline: false });
     if (state.commitSha) fields.push({ name: 'Commit', value: `\`${compact(state.commitSha, 900)}\``, inline: false });

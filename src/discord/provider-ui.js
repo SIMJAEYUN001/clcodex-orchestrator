@@ -37,10 +37,11 @@ function addText(modal, { id, label, value, placeholder, style = TextInputStyle.
 }
 
 export class ProviderAdminUi {
-  constructor({ guildId, service, store }) {
+  constructor({ guildId, service, store, adminSetupServer = null }) {
     this.guildId = guildId;
     this.service = service;
     this.store = store;
+    this.adminSetupServer = adminSetupServer;
     this.ui = new UiSessionStore('pui');
   }
 
@@ -108,7 +109,7 @@ export class ProviderAdminUi {
     if (selected) {
       embed.addFields(
         { name: '프로필', value: `**${compact(selected.name, 80)}** · ${selected.enabled ? '활성' : '비활성'} · rev ${selected.revision}` },
-        { name: '하네스 / 인증', value: `${selected.harness} / ${selected.authStyle}`, inline: true },
+        { name: '하네스 / 인증', value: `${selected.harness} / ${selected.authType}${selected.authType === 'api-key' ? ` (${selected.authHeader})` : ''}`, inline: true },
         { name: '키', value: selected.secret.configured ? `${selected.secret.mode} · ${selected.secret.hint}` : '미설정', inline: true },
         { name: '엔드포인트', value: `\`${compact(selected.baseUrl, 240)}\`` },
         {
@@ -138,8 +139,7 @@ export class ProviderAdminUi {
     }
 
     components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(this.ui.id(session, 'create', 'claude')).setLabel('Claude 추가').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(this.ui.id(session, 'create', 'codex')).setLabel('Codex 추가').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(this.ui.id(session, 'setup-link')).setLabel('통합 관리 UI').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(this.ui.id(session, 'edit')).setLabel('엔드포인트 수정').setStyle(ButtonStyle.Secondary).setDisabled(!selected),
       new ButtonBuilder().setCustomId(this.ui.id(session, 'secret-menu')).setLabel('API 키').setStyle(ButtonStyle.Secondary).setDisabled(!selected),
       new ButtonBuilder().setCustomId(this.ui.id(session, 'models-edit')).setLabel('모델 편집').setStyle(ButtonStyle.Secondary).setDisabled(!selected),
@@ -180,16 +180,26 @@ export class ProviderAdminUi {
       session.page += action === 'page-next' ? 1 : -1;
       return interaction.update(this.panel(session));
     }
-    if (action === 'create') return interaction.showModal(this.profileModal(session, argument));
+    if (action === 'setup-link') {
+      if (!this.adminSetupServer) throw new Error('Control Center 서버가 연결되지 않았습니다.');
+      const issued = this.adminSetupServer.issueSession({
+        guildId: session.guildId,
+        userId: interaction.user.id,
+        threadId: interaction.channel?.isThread?.() ? interaction.channelId : null,
+      });
+      return interaction.reply({
+        content: `아래 URL은 관리자 전용이며 제한 시간 후 만료됩니다. 공급자, Codex, Claude Code, 역할 모델과 전체 오케스트레이션을 관리합니다.\n${issued.url}`,
+        flags: EPHEMERAL,
+      });
+    }
     const id = session.selectedProviderId;
     if (!id) throw new Error('먼저 공급자 프로필을 선택하세요.');
     if (action === 'edit') return interaction.showModal(this.editModal(session, this.service.describe(id)));
     if (action === 'models-edit') return interaction.showModal(this.modelsModal(session, this.service.describe(id)));
     if (action === 'secret-menu') {
       return interaction.reply({
-        content: '키 저장 방식을 선택하세요. 운영 환경에서는 ENV 또는 파일 참조를 권장합니다.',
+        content: 'Discord native modal은 password 마스킹을 지원하지 않습니다. 직접 credential 입력은 `/admin` 또는 `통합 관리 UI`를 사용하고, 기존 프로필에는 ENV 또는 파일 참조를 사용하세요.',
         components: [new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(this.ui.id(session, 'secret-direct')).setLabel('직접 입력·암호화').setStyle(ButtonStyle.Primary),
           new ButtonBuilder().setCustomId(this.ui.id(session, 'secret-env')).setLabel('ENV 참조').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId(this.ui.id(session, 'secret-file')).setLabel('파일 참조').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId(this.ui.id(session, 'secret-clear')).setLabel('키 제거').setStyle(ButtonStyle.Danger),
@@ -197,7 +207,7 @@ export class ProviderAdminUi {
         flags: EPHEMERAL,
       });
     }
-    if (['secret-direct', 'secret-env', 'secret-file'].includes(action)) return interaction.showModal(this.secretModal(session, action));
+    if (['secret-env', 'secret-file'].includes(action)) return interaction.showModal(this.secretModal(session, action));
     if (action === 'secret-clear') {
       this.store.clearSecret(id, interaction.user.id);
       return interaction.update({ content: '키 연결을 제거했습니다.', components: [] });
@@ -236,30 +246,11 @@ export class ProviderAdminUi {
     if (action === 'delete-cancel') return interaction.update({ content: '삭제를 취소했습니다.', components: [] });
   }
 
-  profileModal(session, harness) {
-    const modal = new ModalBuilder()
-      .setCustomId(this.ui.id(session, 'modal-create', harness))
-      .setTitle(`${harness === 'claude' ? 'Claude Code' : 'Codex'} 프록시 추가`);
-    addText(modal, { id: 'name', label: '프로필 이름', placeholder: '예: frontend-glm' });
-    addText(modal, { id: 'base_url', label: 'Base URL', placeholder: 'https://proxy.example.com' });
-    addText(modal, { id: 'models_path', label: '모델 목록 경로', value: '/v1/models' });
-    addText(modal, {
-      id: 'auth_style',
-      label: '인증 방식',
-      value: harness === 'claude' ? 'api-key-helper' : 'bearer',
-      placeholder: 'api-key-helper, x-api-key, bearer',
-      maxLength: 32,
-    });
-    addText(modal, { id: 'models', label: '초기 모델 ID', placeholder: '한 줄에 하나', style: TextInputStyle.Paragraph, required: false });
-    return modal;
-  }
-
   editModal(session, profile) {
     const modal = new ModalBuilder().setCustomId(this.ui.id(session, 'modal-edit')).setTitle('공급자 프로필 수정');
     addText(modal, { id: 'name', label: '프로필 이름', value: profile.name });
     addText(modal, { id: 'base_url', label: 'Base URL', value: profile.baseUrl });
     addText(modal, { id: 'models_path', label: '모델 목록 경로', value: profile.modelsPath });
-    addText(modal, { id: 'auth_style', label: '인증 방식', value: profile.authStyle, maxLength: 32 });
     return modal;
   }
 
@@ -274,40 +265,25 @@ export class ProviderAdminUi {
   }
 
   secretModal(session, action) {
-    const direct = action === 'secret-direct';
     const env = action === 'secret-env';
     const modal = new ModalBuilder()
       .setCustomId(this.ui.id(session, `modal-${action}`))
-      .setTitle(direct ? 'API 키 암호화 등록' : env ? '환경변수 참조' : '파일 참조');
+      .setTitle(env ? '환경변수 참조' : '파일 참조');
     addText(modal, {
       id: 'secret',
-      label: direct ? 'API 키' : env ? '환경변수 이름' : 'secret root 기준 상대 경로',
-      placeholder: direct ? '입력값은 다시 표시되지 않습니다' : env ? 'FRONTEND_PROXY_API_KEY' : 'frontend.key',
-      maxLength: direct ? 4000 : 512,
+      label: env ? '환경변수 이름' : 'secret root 기준 상대 경로',
+      placeholder: env ? 'FRONTEND_PROXY_API_KEY' : 'frontend.key',
+      maxLength: 512,
     });
     return modal;
   }
 
-  async modal(interaction, session, action, argument) {
-    if (action === 'modal-create') {
-      const created = await this.service.create({
-        guildId: session.guildId,
-        harness: argument,
-        name: interaction.fields.getTextInputValue('name'),
-        baseUrl: interaction.fields.getTextInputValue('base_url'),
-        modelsPath: interaction.fields.getTextInputValue('models_path'),
-        authStyle: interaction.fields.getTextInputValue('auth_style'),
-        models: parseModels(interaction.fields.getTextInputValue('models')),
-      }, interaction.user.id);
-      session.selectedProviderId = created.id;
-      return interaction.reply({ ...this.panel(session), flags: EPHEMERAL });
-    }
+  async modal(interaction, session, action) {
     if (action === 'modal-edit') {
       await this.service.update(session.selectedProviderId, {
         name: interaction.fields.getTextInputValue('name'),
         baseUrl: interaction.fields.getTextInputValue('base_url'),
         modelsPath: interaction.fields.getTextInputValue('models_path'),
-        authStyle: interaction.fields.getTextInputValue('auth_style'),
       }, interaction.user.id);
       return interaction.reply({ ...this.panel(session), flags: EPHEMERAL });
     }
@@ -316,12 +292,12 @@ export class ProviderAdminUi {
       return interaction.reply({ ...this.panel(session), flags: EPHEMERAL });
     }
     const value = interaction.fields.getTextInputValue('secret');
-    if (action === 'modal-secret-direct') this.service.encryptedSecret(session.selectedProviderId, value, interaction.user.id);
-    else if (action === 'modal-secret-env') this.service.envSecret(session.selectedProviderId, value, interaction.user.id);
+    if (action === 'modal-secret-env') this.service.envSecret(session.selectedProviderId, value, interaction.user.id);
     else if (action === 'modal-secret-file') this.service.fileSecret(session.selectedProviderId, value, interaction.user.id);
     else throw new Error('Unknown provider modal');
-    return interaction.reply({ content: '키 연결을 저장했습니다. 원문 키는 표시하거나 감사 로그에 기록하지 않습니다.', flags: EPHEMERAL });
+    return interaction.reply({ content: '키 참조를 저장했습니다. 원문 키는 표시하거나 감사 로그에 기록하지 않습니다.', flags: EPHEMERAL });
   }
+
 }
 
 export const __test = { parseModels };

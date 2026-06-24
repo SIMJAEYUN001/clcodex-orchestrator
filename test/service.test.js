@@ -8,9 +8,12 @@ test('model normalization removes duplicates and rejects shell-like model IDs', 
 });
 
 test('Claude and Codex authentication styles are validated by harness', () => {
-  assert.equal(__test.authStyle('', 'claude'), 'api-key-helper');
+  assert.equal(__test.authStyle('', 'claude'), 'api-key');
   assert.equal(__test.authStyle('', 'codex'), 'bearer');
-  assert.throws(() => __test.authStyle('api-key-helper', 'codex'));
+  assert.equal(__test.authStyle('api-key-helper', 'codex'), 'api-key');
+  assert.equal(__test.authType('basic'), 'basic');
+  assert.throws(() => __test.authType('digest'));
+  assert.throws(() => __test.authHeader('Authorization'));
 });
 
 test('OpenAI-compatible model list shape is accepted', () => {
