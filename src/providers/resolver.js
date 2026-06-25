@@ -6,6 +6,12 @@ const SAFE_ENV = [
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'COLORTERM', 'TZ',
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
 ];
+const OAUTH_PROVIDER_ENV_BLOCKLIST = new Set([
+  'ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_API_KEY_HELPER', 'CLAUDE_CODE_API_KEY',
+  'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_BASE_PATH', 'OPENAI_ORG_ID', 'OPENAI_PROJECT_ID',
+  'CLCODEX_GATEWAY_TOKEN', 'CLCODEX_PROVIDER_ID', 'CLCODEX_PROVIDER_REVISION',
+]);
 
 function jsonObject(file) {
   try {
@@ -17,6 +23,11 @@ function jsonObject(file) {
 function cleanEnvironment(parent = process.env) {
   const env = {};
   for (const key of SAFE_ENV) if (parent[key]) env[key] = parent[key];
+  return env;
+}
+
+function scrubOauthProviderEnvironment(env) {
+  for (const key of OAUTH_PROVIDER_ENV_BLOCKLIST) delete env[key];
   return env;
 }
 
@@ -83,12 +94,15 @@ export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessio
       delete env.ANTHROPIC_BASE_URL;
       delete env.ANTHROPIC_API_KEY;
       delete env.ANTHROPIC_AUTH_TOKEN;
+      delete env.CLAUDE_CODE_API_KEY_HELPER;
+      delete env.CLAUDE_CODE_API_KEY;
+      scrubOauthProviderEnvironment(env);
       const claude = roleSettings.claude;
       const args = ['--model', model, '--permission-mode', claude.permissionMode, '--effort', claude.effort];
       if (claude.fallbackModel) args.push('--fallback-model', claude.fallbackModel);
       if (claude.allowedTools.length) args.push('--allowedTools', ...claude.allowedTools);
       if (claude.disallowedTools.length) args.push('--disallowedTools', ...claude.disallowedTools);
-      return { harness: 'claude', args, env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType };
+      return { harness: 'claude', args, env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType, blockedEnvKeys: [...OAUTH_PROVIDER_ENV_BLOCKLIST] };
     }
     const settings = jsonObject(settingsFile);
     const helper = path.join(configDir, 'gateway-key-helper.sh');
@@ -116,7 +130,9 @@ export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessio
     if (parentEnv.CODEX_HOME) env.CODEX_HOME = parentEnv.CODEX_HOME; else if (parentEnv.HOME) env.CODEX_HOME = path.join(parentEnv.HOME, '.codex');
     delete env.OPENAI_API_KEY;
     delete env.OPENAI_BASE_URL;
-    return { harness: 'codex', args: ['--model', model], env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType };
+    delete env.OPENAI_BASE_PATH;
+    scrubOauthProviderEnvironment(env);
+    return { harness: 'codex', args: ['--model', model], env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType, blockedEnvKeys: [...OAUTH_PROVIDER_ENV_BLOCKLIST] };
   }
   mkdirSync(codexHome, { recursive: true, mode: 0o700 });
   const providerKey = codexProviderId(profile.id);
@@ -144,4 +160,4 @@ export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessio
   return { harness: 'codex', args: ['--model', model], env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings };
 }
 
-export const __test = { cleanEnvironment, codexProviderId };
+export const __test = { cleanEnvironment, codexProviderId, scrubOauthProviderEnvironment };

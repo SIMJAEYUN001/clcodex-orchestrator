@@ -56,11 +56,47 @@ test('OAuth profiles launch the CLI directly without gateway token or proxy cred
     runtimeRoot: root,
     sessionId: 's3',
     cwd: root,
-    parentEnv: { PATH: '/usr/bin', HOME: home, OPENAI_API_KEY: 'global' },
+    parentEnv: {
+      PATH: '/usr/bin', HOME: home, OPENAI_API_KEY: 'global', OPENAI_BASE_URL: 'https://proxy.invalid',
+      CLCODEX_GATEWAY_TOKEN: 'gateway-token', CLCODEX_PROVIDER_ID: 'provider',
+    },
   });
   assert.equal(launch.env.HOME, home);
   assert.equal(launch.env.CODEX_HOME, path.join(home, '.codex'));
   assert.equal(launch.env.CLCODEX_GATEWAY_TOKEN, undefined);
+  assert.equal(launch.env.CLCODEX_PROVIDER_ID, undefined);
   assert.equal(launch.env.OPENAI_API_KEY, undefined);
+  assert.equal(launch.env.OPENAI_BASE_URL, undefined);
+  assert.equal(launch.blockedEnvKeys.includes('OPENAI_API_KEY'), true);
   assert.deepEqual(launch.args, ['--model', 'gpt-model']);
 });
+
+test('Claude OAuth profiles preserve subscription login homes but strip API/proxy overrides', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'clcodex-launch-'));
+  const home = mkdtempSync(path.join(os.tmpdir(), 'clcodex-claude-oauth-home-'));
+  const launch = buildHarnessLaunch({
+    resolved: { ...selected('claude', 'oauth'), credential: null },
+    runtimeRoot: root,
+    sessionId: 's4',
+    cwd: root,
+    parentEnv: {
+      PATH: '/usr/bin', HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
+      ANTHROPIC_BASE_URL: 'https://openclawroot.com',
+      ANTHROPIC_API_KEY: 'api-key',
+      ANTHROPIC_AUTH_TOKEN: 'auth-token',
+      CLAUDE_CODE_API_KEY_HELPER: '/tmp/helper',
+      CLCODEX_GATEWAY_TOKEN: 'gateway-token',
+    },
+  });
+  assert.equal(launch.env.HOME, home);
+  assert.equal(launch.env.XDG_CONFIG_HOME, path.join(home, '.config'));
+  assert.equal(launch.env.CLAUDE_CONFIG_DIR, undefined);
+  assert.equal(launch.env.ANTHROPIC_BASE_URL, undefined);
+  assert.equal(launch.env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(launch.env.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(launch.env.CLAUDE_CODE_API_KEY_HELPER, undefined);
+  assert.equal(launch.env.CLCODEX_GATEWAY_TOKEN, undefined);
+  assert.equal(launch.blockedEnvKeys.includes('ANTHROPIC_BASE_URL'), true);
+  assert.deepEqual(launch.args.slice(0, 2), ['--model', 'glm-5.2']);
+});
+

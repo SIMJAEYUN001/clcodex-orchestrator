@@ -46,7 +46,9 @@ export class ManagedHarnessRuntime {
       cwd,
       runtimeSettings: runtimePolicy.settings,
     });
+    const blockedEnvKeys = new Set(launch.blockedEnvKeys || []);
     for (const [key, value] of Object.entries(extraEnvironment || {})) {
+      if (blockedEnvKeys.has(key)) continue;
       if (value != null) launch.env[key] = String(value);
     }
     const executable = path.join(
