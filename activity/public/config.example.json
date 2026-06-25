@@ -3,6 +3,7 @@
   "installationId": "ADMIN_RELAY_INSTALLATION_ID",
   "relayHttpUrl": "https://relay.example.com",
   "relayWebSocketUrl": "wss://relay.example.com",
+  "oauthRedirectUri": "https://127.0.0.1",
   "deviceSigningPublicKey": {
     "kty": "EC",
     "crv": "P-256",

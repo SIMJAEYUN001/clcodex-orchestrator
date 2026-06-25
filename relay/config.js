@@ -28,6 +28,17 @@ function exactHttpsOrigins(name) {
   return [...new Set(origins)];
 }
 
+function optionalExactHttpsOrigin(name) {
+  const value = process.env[name]?.trim();
+  if (!value) return null;
+  let url;
+  try { url = new URL(value); } catch { throw new Error(`${name} must be a valid HTTPS origin`); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error(`${name} must be an exact HTTPS origin without credentials, path, query, or fragment`);
+  }
+  return url.origin;
+}
+
 function discordApplicationId(name) {
   const value = required(name);
   if (!/^\d{15,25}$/.test(value)) throw new Error(`${name} must be a Discord application snowflake`);
@@ -62,7 +73,7 @@ export function loadRelayConfig() {
     devices: devices(),
     discordClientId: discordApplicationId('RELAY_DISCORD_CLIENT_ID'),
     discordClientSecret: required('RELAY_DISCORD_CLIENT_SECRET'),
-    oauthRedirectUri: process.env.RELAY_OAUTH_REDIRECT_URI?.trim() || null,
+    oauthRedirectUri: optionalExactHttpsOrigin('RELAY_OAUTH_REDIRECT_URI'),
     oauthSessionTtlMs: integer('RELAY_OAUTH_SESSION_TTL_MS', 120_000, 10_000),
     activitySessionTtlMs: integer('RELAY_ACTIVITY_SESSION_TTL_MS', 300_000, 30_000),
     maxPayloadBytes: integer('RELAY_MAX_PAYLOAD_BYTES', 1_000_000, 16_384),

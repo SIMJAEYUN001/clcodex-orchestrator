@@ -28,8 +28,10 @@ function assertConfig(config) {
     }
   }
   canonicalPublicJwk(config.deviceSigningPublicKey);
+  const oauthRedirectUri = config.oauthRedirectUri ? normalizeBase(config.oauthRedirectUri, 'https:') : null;
   return {
     ...config,
+    oauthRedirectUri,
     relayHttpUrl: normalizeBase(config.relayHttpUrl, 'https:'),
     relayWebSocketUrl: normalizeBase(config.relayWebSocketUrl, 'wss:'),
   };
@@ -66,7 +68,7 @@ async function oauth(config, discordSdk) {
   const response = await fetch(`${config.relayHttpUrl}/v1/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: authorization.code }),
+    body: JSON.stringify({ code: authorization.code, ...(config.oauthRedirectUri ? { redirectUri: config.oauthRedirectUri } : {}) }),
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
   });

@@ -105,6 +105,7 @@ export class AdminRelayServer {
       grant_type: 'authorization_code',
       code: identifier(code, 'OAuth code', 2048),
     });
+    if (this.config.oauthRedirectUri) params.set('redirect_uri', this.config.oauthRedirectUri);
     const tokenResponse = await this.fetch('https://discord.com/api/v10/oauth2/token', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -112,7 +113,17 @@ export class AdminRelayServer {
       redirect: 'error',
       signal: AbortSignal.timeout(12_000),
     });
-    if (!tokenResponse.ok) throw new Error(`Discord OAuth token exchange failed with HTTP ${tokenResponse.status}`);
+    if (!tokenResponse.ok) {
+      let details = '';
+      try {
+        const body = await tokenResponse.json();
+        details = [body.error, body.error_description, body.message].filter(Boolean).join(': ');
+      } catch {}
+      if (/redirect_uri/i.test(details)) {
+        throw new Error('Discord OAuth token exchange requires RELAY_OAUTH_REDIRECT_URI to match a Redirect URI registered in the Discord Developer Portal for this application. Register the same URI in OAuth2 Redirects, then rebuild and redeploy the Activity.');
+      }
+      throw new Error(`Discord OAuth token exchange failed with HTTP ${tokenResponse.status}${details ? `: ${details}` : ''}`);
+    }
     const token = await tokenResponse.json();
     if (!token.access_token) throw new Error('Discord OAuth response did not include an access token');
     const userResponse = await this.fetch('https://discord.com/api/v10/users/@me', {
@@ -170,6 +181,9 @@ export class AdminRelayServer {
       if (request.method === 'POST' && url.pathname === '/v1/oauth/token') {
         if (!origin) return sendJson(response, 403, { ok: false, error: 'Origin is not allowed' });
         const input = await bodyJson(request, 32_768);
+        if (this.config.oauthRedirectUri && input.redirectUri !== this.config.oauthRedirectUri) {
+          throw new Error('Activity OAuth redirect URI does not match relay configuration; rebuild and redeploy the Activity after changing RELAY_OAUTH_REDIRECT_URI.');
+        }
         const { token, user } = await this.exchangeOAuth(input.code);
         const relay = this.createOauthSession(user);
         sendJson(response, 200, {

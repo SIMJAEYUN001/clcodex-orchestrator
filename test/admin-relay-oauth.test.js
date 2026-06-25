@@ -132,3 +132,86 @@ test('relay ignores web OAuth redirect_uri input for the Discord Activity server
     await relay.close();
   }
 });
+
+test('relay forwards the configured OAuth redirect_uri during Discord token exchange', async () => {
+  const calls = [];
+  const relay = new AdminRelayServer({ ...config(), oauthRedirectUri: 'https://127.0.0.1' }, {
+    fetchImpl: async (url, options = {}) => {
+      calls.push({ url: String(url), options });
+      if (String(url).endsWith('/oauth2/token')) {
+        return new Response(JSON.stringify({ access_token: 'discord-access', token_type: 'Bearer', expires_in: 300 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ id: 'admin', username: 'admin' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+    logger: { warn() {}, error() {} },
+  });
+  try {
+    await relay.start();
+    const { port } = relay.address();
+    const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
+      method: 'POST',
+      headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'one-time-code', redirectUri: 'https://127.0.0.1' }),
+    });
+    assert.equal(response.status, 200);
+    const params = new URLSearchParams(String(calls[0].options.body));
+    assert.equal(params.get('redirect_uri'), 'https://127.0.0.1');
+  } finally {
+    await relay.close();
+  }
+});
+
+test('relay rejects Activity OAuth redirect URI mismatches before contacting Discord', async () => {
+  let called = false;
+  const relay = new AdminRelayServer({ ...config(), oauthRedirectUri: 'https://127.0.0.1' }, {
+    fetchImpl: async () => { called = true; throw new Error('must not be called'); },
+    logger: { warn() {}, error() {} },
+  });
+  try {
+    await relay.start();
+    const { port } = relay.address();
+    const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
+      method: 'POST',
+      headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'one-time-code', redirectUri: 'https://attacker.example' }),
+    });
+    assert.equal(response.status, 400);
+    const result = await response.json();
+    assert.match(result.error, /does not match relay configuration/);
+    assert.equal(called, false);
+  } finally {
+    await relay.close();
+  }
+});
+
+test('relay maps Discord redirect_uri token errors to Developer Portal guidance', async () => {
+  const relay = new AdminRelayServer({ ...config(), oauthRedirectUri: 'https://127.0.0.1' }, {
+    fetchImpl: async () => new Response(JSON.stringify({ error: 'invalid_request', error_description: 'Missing redirect_uri in request' }), {
+      status: 400,
+      headers: { 'content-type': 'application/json' },
+    }),
+    logger: { warn() {}, error() {} },
+  });
+  try {
+    await relay.start();
+    const { port } = relay.address();
+    const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
+      method: 'POST',
+      headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'one-time-code', redirectUri: 'https://127.0.0.1' }),
+    });
+    assert.equal(response.status, 400);
+    const result = await response.json();
+    assert.match(result.error, /Discord Developer Portal/);
+    assert.match(result.error, /RELAY_OAUTH_REDIRECT_URI/);
+  } finally {
+    await relay.close();
+  }
+});
+

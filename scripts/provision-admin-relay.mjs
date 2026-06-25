@@ -41,6 +41,7 @@ const discordClientId = String(input['discord-client-id'] || process.env.DISCORD
 const relayHttpUrl = exactOrigin(input['relay-http-url'] || process.env.ADMIN_RELAY_HTTP_URL, 'https:', '--relay-http-url');
 const relayWebSocketUrl = exactOrigin(input['relay-ws-url'] || process.env.ADMIN_RELAY_WS_URL, 'wss:', '--relay-ws-url');
 const activityOrigin = exactOrigin(input['activity-origin'] || process.env.DISCORD_ACTIVITY_ORIGIN, 'https:', '--activity-origin');
+const oauthRedirectUri = exactOrigin(input['oauth-redirect-uri'] || process.env.RELAY_OAUTH_REDIRECT_URI || 'https://127.0.0.1', 'https:', '--oauth-redirect-uri');
 if (!discordClientId || !/^\d+$/.test(discordClientId)) throw new Error('--discord-client-id is required');
 
 await mkdir(relayRoot, { recursive: true, mode: 0o700 });
@@ -52,6 +53,7 @@ const activityConfig = {
   installationId,
   relayHttpUrl,
   relayWebSocketUrl,
+  oauthRedirectUri,
   deviceSigningPublicKey: metadata.publicKey,
   deviceFingerprint: metadata.fingerprint,
 };
@@ -80,6 +82,7 @@ const relayEnv = [
   `RELAY_ACTIVITY_ORIGINS=${activityOrigin}`,
   `RELAY_DEVICES_JSON=${JSON.stringify({ [installationId]: deviceToken })}`,
   `RELAY_DISCORD_CLIENT_ID=${discordClientId}`,
+  `RELAY_OAUTH_REDIRECT_URI=${oauthRedirectUri}`,
   'RELAY_DISCORD_CLIENT_SECRET=REPLACE_ME',
   '',
 ].join('\n');
@@ -99,5 +102,6 @@ console.log(JSON.stringify({
   activityConfig: path.resolve('activity/public/config.json'),
   orchestratorEnv: orchestratorEnvFile,
   relayEnv: relayEnvFile,
-  note: 'relay.env still requires RELAY_DISCORD_CLIENT_SECRET and the public Activity origin.',
+  oauthRedirectUri,
+  note: 'relay.env still requires RELAY_DISCORD_CLIENT_SECRET and the public Activity origin. Register oauthRedirectUri in Discord Developer Portal OAuth2 Redirects.',
 }, null, 2));
