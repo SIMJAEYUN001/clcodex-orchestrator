@@ -1,0 +1,38 @@
+name: Apply Activity relay delivery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.delivery/APPLY_ACTIVITY_RELAY'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-activity-relay-delivery
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decode and validate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .delivery/activity-relay.patch.b64.part-* | base64 --decode > /tmp/activity-relay.patch
+          echo 'c5e22471ec2aab55e9bcb3da0ede4746a41afbe37db29eaa40f02569234416cb  /tmp/activity-relay.patch' | sha256sum --check --strict
+          git apply --check /tmp/activity-relay.patch
+      - name: Apply delivery to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/activity-relay.patch
+          git config user.name 'clcodex-integrator'
+          git config user.email 'integrator@localhost'
+          git commit -m 'fix: remove legacy loopback admin URL and require Activity relay'
+          git push origin HEAD:main
