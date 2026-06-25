@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .delivery/activity-relay.patch.b64.part-* | base64 --decode > /tmp/activity-relay.patch
+          cat .delivery/activity-relay.patch.gz.b64.part-* | base64 --decode | gzip --decompress > /tmp/activity-relay.patch
           echo 'c5e22471ec2aab55e9bcb3da0ede4746a41afbe37db29eaa40f02569234416cb  /tmp/activity-relay.patch' | sha256sum --check --strict
           git apply --check /tmp/activity-relay.patch
       - name: Apply delivery to main
