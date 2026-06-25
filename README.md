@@ -207,7 +207,7 @@ Discord /admin
       │ Administrator 검사 + 1회용 grant
       ▼
 Discord Activity (정적 SPA)
-      │ Discord RPC OAuth + PKCE
+      │ Discord RPC OAuth code
       │ ECDH → AES-256-GCM RPC
       ▼
 공개 relay ── 암호문 frame만 전달
@@ -219,7 +219,7 @@ Discord Activity (정적 SPA)
       └─ allowlisted 관리 RPC 실행
 ```
 
-Discord Embedded App SDK의 RPC OAuth authorize 호출에는 일반 웹 OAuth와 달리 `redirect_uri`를 넣지 않습니다. Activity는 PKCE `code_verifier`와 현재 Activity origin 기반 `redirectUri`를 relay token exchange 요청에만 전달하고, relay는 해당 origin이 `RELAY_ACTIVITY_ORIGINS`에 포함될 때만 Discord token exchange의 `redirect_uri`로 전달합니다. 이 구분을 어기면 Discord가 `Missing "redirect_uri" in request` 또는 `Redirect URI cannot be used in the RPC OAuth2 Authorization flow` 오류를 반환할 수 있습니다.
+Discord Embedded App SDK의 RPC OAuth authorize 호출에는 일반 웹 OAuth와 달리 `redirect_uri`를 넣지 않습니다. Activity token exchange도 Discord 공식 starter 방식처럼 Activity가 받은 `code`만 relay에 전달하고, relay가 `client_secret`으로 Discord `/oauth2/token`을 호출합니다. Activity RPC OAuth code flow에 PKCE `code_challenge`/`code_verifier`나 `redirect_uri`를 섞으면 Discord가 웹 OAuth redirect 규칙으로 해석해 `Missing "redirect_uri" in request` 또는 `Redirect URI cannot be used in the RPC OAuth2 Authorization flow` 오류를 반환할 수 있습니다.
 
 로컬 서버에는 관리용 inbound endpoint가 없습니다. Relay는 provider API key, Basic Auth password, 역할 binding payload를 복호화할 키를 보유하지 않습니다. Activity가 pin한 로컬 device signing public key로 핸드셰이크를 검증하고, RPC payload는 Activity와 로컬 오케스트레이터 사이에서만 복호화됩니다.
 
@@ -561,7 +561,7 @@ npm audit --omit=dev
 테스트 범위:
 
 - `/admin` Activity 직접 실행과 관리자 권한/application command 소유권
-- outbound-only relay device 인증, Discord OAuth PKCE, exact Origin CORS
+- outbound-only relay device 인증, Discord Activity OAuth code exchange, exact Origin CORS
 - ECDH/HKDF/AES-GCM RPC와 pinned device signature, replay sequence
 - 네 역할 bot token/account 고유성
 - 인증 dropdown·password input·초기 모델 단일 input

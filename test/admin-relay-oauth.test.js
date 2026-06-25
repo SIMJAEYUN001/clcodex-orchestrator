@@ -18,7 +18,7 @@ function config() {
   };
 }
 
-test('relay OAuth exchange requires PKCE and exposes the result only to the exact Activity origin', async () => {
+test('relay OAuth exchange follows the Discord Activity server flow and exposes the result only to the exact Activity origin', async () => {
   const calls = [];
   const relay = new AdminRelayServer(config(), {
     fetchImpl: async (url, options = {}) => {
@@ -39,11 +39,10 @@ test('relay OAuth exchange requires PKCE and exposes the result only to the exac
   try {
     await relay.start();
     const { port } = relay.address();
-    const codeVerifier = 'a'.repeat(43);
     const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',
       headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'one-time-code', codeVerifier, redirectUri: 'https://activity.example' }),
+      body: JSON.stringify({ code: 'one-time-code' }),
     });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('access-control-allow-origin'), 'https://activity.example');
@@ -52,14 +51,16 @@ test('relay OAuth exchange requires PKCE and exposes the result only to the exac
     assert.ok(result.relay_session_token);
     const tokenRequest = calls[0];
     const params = new URLSearchParams(String(tokenRequest.options.body));
-    assert.equal(params.get('code_verifier'), codeVerifier);
     assert.equal(params.get('code'), 'one-time-code');
-    assert.equal(params.get('redirect_uri'), 'https://activity.example');
+    assert.equal(params.get('client_id'), '123456789012345678');
+    assert.equal(params.get('grant_type'), 'authorization_code');
+    assert.equal(params.has('code_verifier'), false);
+    assert.equal(params.has('redirect_uri'), false);
 
     const rejected = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',
       headers: { origin: 'https://attacker.example', 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'unused', codeVerifier }),
+      body: JSON.stringify({ code: 'unused' }),
     });
     assert.equal(rejected.status, 403);
     assert.equal(calls.length, 2, 'disallowed origin must not reach Discord OAuth');
@@ -68,7 +69,7 @@ test('relay OAuth exchange requires PKCE and exposes the result only to the exac
   }
 });
 
-test('relay rejects malformed PKCE verifiers before contacting Discord', async () => {
+test('relay rejects missing OAuth codes before contacting Discord', async () => {
   let called = false;
   const relay = new AdminRelayServer(config(), {
     fetchImpl: async () => { called = true; throw new Error('must not be called'); },
@@ -80,7 +81,7 @@ test('relay rejects malformed PKCE verifiers before contacting Discord', async (
     const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',
       headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'code', codeVerifier: 'short' }),
+      body: JSON.stringify({}),
     });
     assert.equal(response.status, 400);
     assert.equal(called, false);
