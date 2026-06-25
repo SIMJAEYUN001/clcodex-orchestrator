@@ -1,9 +1,18 @@
+import { execFile } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import { promisify } from 'node:util';
 import { ROLES } from '../roles.js';
 
+const execFileAsync = promisify(execFile);
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$/;
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
 const AUTH_TYPES = new Set(['bearer', 'api-key', 'basic', 'oauth']);
+const CLAUDE_CODE_OAUTH_MODELS = Object.freeze([
+  { modelKey: 'fable', displayName: 'fable', metadata: { source: 'claude-code-oauth' } },
+  { modelKey: 'opus', displayName: 'opus', metadata: { source: 'claude-code-oauth' } },
+  { modelKey: 'sonnet', displayName: 'sonnet', metadata: { source: 'claude-code-oauth' } },
+  { modelKey: 'haiku', displayName: 'haiku', metadata: { source: 'claude-code-oauth' } },
+]);
 
 function profileName(value) {
   const result = String(value || '').trim();
@@ -123,6 +132,38 @@ function extractModels(payload) {
   return models;
 }
 
+function extractCodexDebugModels(payload) {
+  const source = Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : [];
+  return normalizeModels(source
+    .filter((item) => item && item.visibility !== 'hidden')
+    .map((item) => ({
+      modelKey: item.slug || item.id || item.name,
+      displayName: item.display_name || item.displayName || item.slug || item.id || item.name,
+      metadata: { source: 'codex-debug-models', supportedInApi: item.supported_in_api },
+    })));
+}
+
+async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync } = {}) {
+  const started = performance.now();
+  if (harness === 'codex') {
+    let stdout;
+    try {
+      ({ stdout } = await execFileImpl('codex', ['debug', 'models'], { timeout: 10_000, maxBuffer: 2_000_000 }));
+    } catch (error) {
+      throw new Error(`Codex OAuth model discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    let payload;
+    try { payload = JSON.parse(stdout); } catch (error) {
+      throw new Error(`Codex OAuth model discovery returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { models: extractCodexDebugModels(payload), status: 0, latencyMs: Math.round(performance.now() - started), source: 'codex-cli' };
+  }
+  if (harness === 'claude') {
+    return { models: CLAUDE_CODE_OAUTH_MODELS.map((item) => ({ ...item, metadata: { ...item.metadata } })), status: 0, latencyMs: Math.round(performance.now() - started), source: 'claude-code-cli' };
+  }
+  throw new Error(`Unsupported OAuth harness: ${harness}`);
+}
+
 function credentialHeaders(profile, credential) {
   const headers = { accept: 'application/json' };
   if (profile.authType === 'bearer') headers.authorization = `Bearer ${credential}`;
@@ -154,7 +195,9 @@ export class ProviderService {
     if (selectedAuth === 'basic' && !username) throw new Error('Basic authentication requires a username');
     const endpoint = input.endpointUrl
       ? splitEndpointUrl(input.endpointUrl, this.networkPolicy)
-      : { baseUrl: input.baseUrl, modelsPath: this.networkPolicy.modelsPath(input.modelsPath || '/v1/models') };
+      : selectedAuth === 'oauth'
+        ? splitEndpointUrl('http://127.0.0.1/v1/models', this.networkPolicy)
+        : { baseUrl: input.baseUrl, modelsPath: this.networkPolicy.modelsPath(input.modelsPath || '/v1/models') };
     return {
       guildId: input.guildId,
       name: profileName(input.name),
@@ -187,7 +230,7 @@ export class ProviderService {
     try {
       if (normalized.authType !== 'oauth') this.store.setSecret(profile.id, this.vault.encrypted(profile.id, credential), actorId);
       const discovered = normalized.authType === 'oauth'
-        ? { models: normalizeModels(input.models || input.initialModel || []), status: 0, latencyMs: 0 }
+        ? await discoverCliOauthModels(normalized.harness)
         : await this.remoteModels(profile.id);
       const combined = [...discovered.models];
       if (input.initialModel) {
@@ -269,8 +312,7 @@ export class ProviderService {
     const profile = this.normalizeProfileInput(input);
     const base = await this.networkPolicy.assertAllowed(profile.baseUrl);
     if (profile.authType === 'oauth') {
-      if (!input.initialModel) throw new Error('OAuth CLI login mode requires an initial model ID');
-      return { models: normalizeModels([input.initialModel]), status: 0, latencyMs: 0 };
+      return discoverCliOauthModels(profile.harness);
     }
     return this.fetchModels({ ...profile, baseUrl: base.toString().replace(/\/$/, '') }, String(input.credential || '').trim());
   }
@@ -278,6 +320,7 @@ export class ProviderService {
   async remoteModels(providerId) {
     const profile = this.store.requireProfile(providerId);
     if (!profile.enabled) throw new Error('Provider is disabled');
+    if (profile.authType === 'oauth') return discoverCliOauthModels(profile.harness);
     return this.fetchModels(profile, this.credential(providerId));
   }
 
@@ -296,15 +339,18 @@ export class ProviderService {
   describe(providerId) {
     const profile = this.store.requireProfile(providerId);
     const configured = this.store.getSecret(providerId);
+    const secret = profile.authType === 'oauth'
+      ? { configured: true, mode: 'oauth', hint: 'CLI OAuth 로그인' }
+      : configured ? { configured: true, mode: configured.mode, hint: configured.hint } : { configured: false, mode: null, hint: '미설정' };
     return {
       ...profile,
       endpointUrl: endpointFromProfile(profile),
       models: this.store.listModels(providerId),
-      secret: configured ? { configured: true, mode: configured.mode, hint: configured.hint } : { configured: false, mode: null, hint: '미설정' },
+      secret,
     };
   }
 
   list(guildId, enabledOnly = false) { return this.store.listProfiles(guildId, enabledOnly).map((item) => this.describe(item.id)); }
 }
 
-export const __test = { normalizeModels, extractModels, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };
+export const __test = { normalizeModels, extractModels, extractCodexDebugModels, discoverCliOauthModels, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };

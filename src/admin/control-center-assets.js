@@ -40,9 +40,9 @@ export const HTML = String.raw`<!doctype html>
                 <label>하네스<select id="harness" name="harness"><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
                 <label>프로필 이름<input id="name" name="name" type="text" required maxlength="64" placeholder="예: frontend-glm"></label>
               </div>
-              <label>모델 목록 URI<input id="endpoint_url" name="endpoint_url" type="url" required placeholder="https://proxy.example.com/v1/models"></label>
-              <div class="field-grid two">
-                <label>초기 모델 ID<input id="initial_model" name="initial_model" type="text" placeholder="예: gpt-4o"></label>
+              <label id="endpoint-url-label">모델 목록 URI<input id="endpoint_url" name="endpoint_url" type="url" required placeholder="https://proxy.example.com/v1/models"></label>
+              <div class="field-grid two" id="endpoint-details-row">
+                <label id="initial-model-label">초기 모델 ID<input id="initial_model" name="initial_model" type="text" placeholder="예: gpt-4o"></label>
                 <label class="muted">엔드포인트는 전체 URI로 입력<input disabled value="Base URL과 path는 자동 분해됩니다"></label>
               </div>
               <div class="field-grid two">
@@ -130,7 +130,7 @@ var auth=$('auth_type');
 function escapeHtml(value){return String(value==null?'':value).replace(/[&<>\"]/g,function(ch){return({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'})[ch]})}
 function showStatus(message,error){var el=$('status');el.textContent=String(message||'');el.style.color=error?'#fca5a5':'#dbeafe';el.classList.add('show');clearTimeout(showStatus.timer);showStatus.timer=setTimeout(function(){el.classList.remove('show')},5000)}
 async function api(path,body,method){if(!token)throw new Error('Discord에서 발급한 URL fragment token이 없습니다.');var options={method:method||'POST',headers:{authorization:'Bearer '+token}};if(body!==undefined){options.headers['content-type']='application/json';options.body=JSON.stringify(body)}var response=await fetch(path,options);var data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||('HTTP '+response.status));return data}
-function authUi(){var type=auth.value;$('api-key-fields').hidden=type!=='api-key';$('basic-fields').hidden=type!=='basic';$('auth_header').required=type==='api-key';$('auth_username').required=type==='basic';var label=$('credential-label');label.hidden=type==='oauth';$('credential').required=type!=='oauth';label.childNodes[0].textContent=type==='bearer'?'Bearer Token':type==='api-key'?'API Key':type==='oauth'?'CLI OAuth':'Password';$('credential').placeholder=type==='basic'?'Basic Auth password':type==='api-key'?'API key':type==='oauth'?'CLI OAuth 로그인 사용':'Bearer token'}
+function authUi(){var type=auth.value;var oauth=type==='oauth';$('api-key-fields').hidden=type!=='api-key';$('basic-fields').hidden=type!=='basic';$('auth_header').required=type==='api-key';$('auth_username').required=type==='basic';$('endpoint-url-label').hidden=oauth;$('endpoint-details-row').hidden=oauth;$('endpoint_url').required=!oauth;$('initial_model').required=false;var label=$('credential-label');label.hidden=oauth;$('credential').required=!oauth;label.childNodes[0].textContent=type==='bearer'?'Bearer Token':type==='api-key'?'API Key':oauth?'CLI OAuth':'Password';$('credential').placeholder=type==='basic'?'Basic Auth password':type==='api-key'?'API key':oauth?'CLI OAuth 로그인 사용':'Bearer token';$('discover').textContent=oauth?'CLI OAuth 모델 자동 조회':'연결 테스트 및 모델 조회'}
 function tab(name){document.querySelectorAll('.tab').forEach(function(el){el.classList.toggle('active',el.id==='tab-'+name)});document.querySelectorAll('#nav button').forEach(function(el){el.classList.toggle('active',el.dataset.tab===name)});var labels={overview:'개요',providers:'공급자',codex:'Codex',claude:'Claude Code',orchestration:'오케스트레이션',sessions:'세션·이력',help:'도움말'};$('page-title').textContent=labels[name]||name}
 function providerById(id){return(state.data.providers||[]).find(function(item){return item.id===id})}
 function currentBinding(role){return state.data.bindings[role].resolved}

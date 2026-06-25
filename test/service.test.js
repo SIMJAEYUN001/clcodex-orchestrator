@@ -21,6 +21,27 @@ test('OpenAI-compatible model list shape is accepted', () => {
   assert.deepEqual(__test.extractModels({ data: [{ id: 'model-a' }, { id: 'model-b' }] }).map((item) => item.modelKey), ['model-a', 'model-b']);
 });
 
+test('Codex OAuth model discovery parses codex debug catalog', async () => {
+  const result = await __test.discoverCliOauthModels('codex', {
+    execFileImpl: async (command, args) => {
+      assert.equal(command, 'codex');
+      assert.deepEqual(args, ['debug', 'models']);
+      return { stdout: JSON.stringify({ models: [
+        { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', supported_in_api: true },
+        { slug: 'hidden-model', visibility: 'hidden' },
+      ] }) };
+    },
+  });
+  assert.deepEqual(result.models.map((item) => item.modelKey), ['gpt-5.5']);
+  assert.equal(result.source, 'codex-cli');
+});
+
+test('Claude OAuth model discovery returns Claude Code aliases without credentials', async () => {
+  const result = await __test.discoverCliOauthModels('claude');
+  assert.deepEqual(result.models.map((item) => item.modelKey), ['fable', 'opus', 'sonnet', 'haiku']);
+  assert.equal(result.source, 'claude-code-cli');
+});
+
 
 test('full model endpoint URI is split into runtime base URL and model-list path', () => {
   const policy = { parseBaseUrl(raw) { return new URL(String(raw)); } };
