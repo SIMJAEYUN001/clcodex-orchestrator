@@ -43,14 +43,24 @@ async function loadConfig() {
   return assertConfig(await response.json());
 }
 
+function oauthRedirectUri() {
+  const url = new URL(location.href);
+  url.search = '';
+  url.hash = '';
+  return url.origin;
+}
+
 async function oauth(config, discordSdk) {
   await discordSdk.ready();
   const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
   const codeVerifier = base64UrlEncode(verifierBytes);
   const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
+  const redirectUri = oauthRedirectUri();
   const authorization = await discordSdk.commands.authorize({
     client_id: config.discordClientId,
     response_type: 'code',
+    state: crypto.randomUUID(),
+    prompt: 'none',
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
     scope: ['identify'],
@@ -58,7 +68,7 @@ async function oauth(config, discordSdk) {
   const response = await fetch(`${config.relayHttpUrl}/v1/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: authorization.code, codeVerifier }),
+    body: JSON.stringify({ code: authorization.code, codeVerifier, redirectUri }),
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
   });

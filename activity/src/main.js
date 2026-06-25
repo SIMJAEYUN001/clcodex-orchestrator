@@ -4,6 +4,21 @@ import { connectActivityTransport } from './secure-transport.js';
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 const bootStatus = document.getElementById('activity-status');
+const ACTIVITY_BUILD_MARKER = 'lucy-error-format-20260625a';
+if (bootStatus) bootStatus.dataset.build = ACTIVITY_BUILD_MARKER;
+
+function formatError(error) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    for (const key of ['message', 'error', 'reason', 'code']) {
+      if (typeof error[key] === 'string' && error[key]) return error[key];
+    }
+    try { return JSON.stringify(error); } catch { return Object.prototype.toString.call(error); }
+  }
+  return String(error);
+}
+
 const setStatus = (message) => { if (bootStatus) bootStatus.textContent = message; };
 
 function mountShell() {
@@ -38,7 +53,7 @@ function installFetchAdapter(transport) {
         headers: { 'content-type': 'application/json' },
       });
     } catch (error) {
-      return new Response(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }), {
+      return new Response(JSON.stringify({ ok: false, error: formatError(error) }), {
         status: 400,
         headers: { 'content-type': 'application/json' },
       });
@@ -59,5 +74,5 @@ async function boot() {
 
 boot().catch((error) => {
   console.error(error);
-  setStatus(error instanceof Error ? error.message : String(error));
+  setStatus(formatError(error));
 });

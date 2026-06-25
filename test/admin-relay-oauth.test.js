@@ -43,7 +43,7 @@ test('relay OAuth exchange requires PKCE and exposes the result only to the exac
     const response = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',
       headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
-      body: JSON.stringify({ code: 'one-time-code', codeVerifier }),
+      body: JSON.stringify({ code: 'one-time-code', codeVerifier, redirectUri: 'https://activity.example' }),
     });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('access-control-allow-origin'), 'https://activity.example');
@@ -54,6 +54,7 @@ test('relay OAuth exchange requires PKCE and exposes the result only to the exac
     const params = new URLSearchParams(String(tokenRequest.options.body));
     assert.equal(params.get('code_verifier'), codeVerifier);
     assert.equal(params.get('code'), 'one-time-code');
+    assert.equal(params.get('redirect_uri'), 'https://activity.example');
 
     const rejected = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',

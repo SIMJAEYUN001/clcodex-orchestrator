@@ -67,6 +67,18 @@ function pkceVerifier(value) {
   return result;
 }
 
+function oauthRedirectUri(value, allowedOrigins) {
+  if (!value) return null;
+  let url;
+  try { url = new URL(String(value)); } catch { throw new Error('OAuth redirect_uri is invalid'); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error('OAuth redirect_uri must be an HTTPS URL without credentials, query, or fragment');
+  }
+  if (url.pathname !== '/' && url.pathname !== '') throw new Error('OAuth redirect_uri path is not allowed');
+  if (!allowedOrigins.includes(url.origin)) throw new Error('OAuth redirect_uri origin is not allowed');
+  return url.origin;
+}
+
 class RateWindow {
   constructor(limit) {
     this.limit = limit;
@@ -104,7 +116,7 @@ export class AdminRelayServer {
     return this.config.activityOrigins.includes(origin) ? origin : null;
   }
 
-  async exchangeOAuth(code, codeVerifier) {
+  async exchangeOAuth(code, codeVerifier, redirectUri = null) {
     const params = new URLSearchParams({
       client_id: this.config.discordClientId,
       client_secret: this.config.discordClientSecret,
@@ -112,7 +124,8 @@ export class AdminRelayServer {
       code: identifier(code, 'OAuth code', 2048),
       code_verifier: pkceVerifier(codeVerifier),
     });
-    if (this.config.oauthRedirectUri) params.set('redirect_uri', this.config.oauthRedirectUri);
+    const effectiveRedirectUri = oauthRedirectUri(redirectUri, this.config.activityOrigins) || this.config.oauthRedirectUri;
+    if (effectiveRedirectUri) params.set('redirect_uri', effectiveRedirectUri);
     const tokenResponse = await this.fetch('https://discord.com/api/v10/oauth2/token', {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -178,7 +191,7 @@ export class AdminRelayServer {
       if (request.method === 'POST' && url.pathname === '/v1/oauth/token') {
         if (!origin) return sendJson(response, 403, { ok: false, error: 'Origin is not allowed' });
         const input = await bodyJson(request, 32_768);
-        const { token, user } = await this.exchangeOAuth(input.code, input.codeVerifier);
+        const { token, user } = await this.exchangeOAuth(input.code, input.codeVerifier, input.redirectUri);
         const relay = this.createOauthSession(user);
         sendJson(response, 200, {
           ok: true,
