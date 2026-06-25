@@ -35,25 +35,54 @@ function assertConfig(config) {
   };
 }
 
+function applyDiscordProxyRelayOrigin(config) {
+  if (!location.hostname.endsWith('.discordsays.com')) return config;
+  return {
+    ...config,
+    relayHttpUrl: location.origin,
+    relayWebSocketUrl: `wss://${location.host}`,
+  };
+}
+
 async function loadConfig() {
   const response = await fetch('/config.json', { cache: 'no-store' });
   if (!response.ok) throw new Error('Activity config.json is missing');
-  return assertConfig(await response.json());
+  return applyDiscordProxyRelayOrigin(assertConfig(await response.json()));
 }
 
-async function oauth(config, discordSdk) {
-  await discordSdk.ready();
-  const authorization = await discordSdk.commands.authorize({
+function oauthRedirectUri() {
+  const url = new URL(location.href);
+  url.search = '';
+  url.hash = '';
+  return url.origin;
+}
+
+async function authorizeActivity(discordSdk, config) {
+  const base = {
     client_id: config.discordClientId,
     response_type: 'code',
     state: crypto.randomUUID(),
     prompt: 'none',
     scope: ['identify'],
-  });
+  };
+  try {
+    return { authorization: await discordSdk.commands.authorize(base), redirectUri: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('redirect_uri')) throw error;
+    const redirectUri = oauthRedirectUri();
+    const authorization = await discordSdk.commands.authorize({ ...base, state: crypto.randomUUID(), redirect_uri: redirectUri });
+    return { authorization, redirectUri };
+  }
+}
+
+async function oauth(config, discordSdk) {
+  await discordSdk.ready();
+  const { authorization, redirectUri } = await authorizeActivity(discordSdk, config);
   const response = await fetch(`${config.relayHttpUrl}/v1/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: authorization.code }),
+    body: JSON.stringify({ code: authorization.code, ...(redirectUri ? { redirectUri } : {}) }),
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
   });
