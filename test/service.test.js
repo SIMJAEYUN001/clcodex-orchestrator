@@ -21,10 +21,11 @@ test('OpenAI-compatible model list shape is accepted', () => {
   assert.deepEqual(__test.extractModels({ data: [{ id: 'model-a' }, { id: 'model-b' }] }).map((item) => item.modelKey), ['model-a', 'model-b']);
 });
 
-test('Codex OAuth model discovery parses codex debug catalog', async () => {
+test('Codex OAuth model discovery parses codex debug catalog from the configured harness install', async () => {
   const result = await __test.discoverCliOauthModels('codex', {
+    harnessRoot: '/tmp/clcodex-harness',
     execFileImpl: async (command, args) => {
-      assert.equal(command, 'codex');
+      assert.equal(command, '/tmp/clcodex-harness/bin/codex');
       assert.deepEqual(args, ['debug', 'models']);
       return { stdout: JSON.stringify({ models: [
         { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', supported_in_api: true },

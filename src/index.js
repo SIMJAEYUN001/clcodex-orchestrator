@@ -47,6 +47,7 @@ const providerService = new ProviderService({
   vault,
   networkPolicy,
   timeoutMs: config.requestTimeoutMs,
+  harnessRoot: config.harnessRoot,
 });
 const providerResolver = new ProviderResolver({ store: providerStore, vault });
 const providerGateway = new ProviderGateway({

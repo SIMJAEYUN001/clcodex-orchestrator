@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { promisify } from 'node:util';
 import { ROLES } from '../roles.js';
@@ -143,12 +144,17 @@ function extractCodexDebugModels(payload) {
     })));
 }
 
-async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync } = {}) {
+function harnessExecutable(harness, harnessRoot) {
+  if (!harnessRoot) return harness;
+  return path.join(path.resolve(harnessRoot), 'bin', process.platform === 'win32' ? `${harness}.cmd` : harness);
+}
+
+async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync, harnessRoot = null } = {}) {
   const started = performance.now();
   if (harness === 'codex') {
     let stdout;
     try {
-      ({ stdout } = await execFileImpl('codex', ['debug', 'models'], { timeout: 10_000, maxBuffer: 2_000_000 }));
+      ({ stdout } = await execFileImpl(harnessExecutable('codex', harnessRoot), ['debug', 'models'], { timeout: 10_000, maxBuffer: 2_000_000 }));
     } catch (error) {
       throw new Error(`Codex OAuth model discovery failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -181,11 +187,12 @@ function credentialHeaders(profile, credential) {
 }
 
 export class ProviderService {
-  constructor({ store, vault, networkPolicy, timeoutMs = 12_000 }) {
+  constructor({ store, vault, networkPolicy, timeoutMs = 12_000, harnessRoot = null }) {
     this.store = store;
     this.vault = vault;
     this.networkPolicy = networkPolicy;
     this.timeoutMs = timeoutMs;
+    this.harnessRoot = harnessRoot;
   }
 
   normalizeProfileInput(input) {
@@ -230,7 +237,7 @@ export class ProviderService {
     try {
       if (normalized.authType !== 'oauth') this.store.setSecret(profile.id, this.vault.encrypted(profile.id, credential), actorId);
       const discovered = normalized.authType === 'oauth'
-        ? await discoverCliOauthModels(normalized.harness)
+        ? await discoverCliOauthModels(normalized.harness, { harnessRoot: this.harnessRoot })
         : await this.remoteModels(profile.id);
       const combined = [...discovered.models];
       if (input.initialModel) {
@@ -312,7 +319,7 @@ export class ProviderService {
     const profile = this.normalizeProfileInput(input);
     const base = await this.networkPolicy.assertAllowed(profile.baseUrl);
     if (profile.authType === 'oauth') {
-      return discoverCliOauthModels(profile.harness);
+      return discoverCliOauthModels(profile.harness, { harnessRoot: this.harnessRoot });
     }
     return this.fetchModels({ ...profile, baseUrl: base.toString().replace(/\/$/, '') }, String(input.credential || '').trim());
   }
@@ -320,7 +327,7 @@ export class ProviderService {
   async remoteModels(providerId) {
     const profile = this.store.requireProfile(providerId);
     if (!profile.enabled) throw new Error('Provider is disabled');
-    if (profile.authType === 'oauth') return discoverCliOauthModels(profile.harness);
+    if (profile.authType === 'oauth') return discoverCliOauthModels(profile.harness, { harnessRoot: this.harnessRoot });
     return this.fetchModels(profile, this.credential(providerId));
   }
 
@@ -353,4 +360,4 @@ export class ProviderService {
   list(guildId, enabledOnly = false) { return this.store.listProfiles(guildId, enabledOnly).map((item) => this.describe(item.id)); }
 }
 
-export const __test = { normalizeModels, extractModels, extractCodexDebugModels, discoverCliOauthModels, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };
+export const __test = { normalizeModels, extractModels, extractCodexDebugModels, discoverCliOauthModels, harnessExecutable, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };
