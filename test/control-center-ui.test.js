@@ -22,11 +22,18 @@ test('provider form keeps authentication and credential separate and uses one in
   assert.equal(/id="base_url"/.test(HTML), false);
   assert.match(HTML, /id="initial_model"[^>]+type="text"[^>]+placeholder="예: gpt-4o"/);
   assert.equal(/textarea[^>]+id="initial_model"/.test(HTML), false);
+  assert.match(HTML, /id="cli-oauth-panel"/);
+  assert.match(HTML, /id="cli-oauth-start"/);
+  assert.match(APP, /endpoint-details-row'\)\.hidden=oauth/);
+  assert.match(APP, /cli-oauth-panel'\)\.hidden=!oauth/);
 });
 
 test('client implements model discovery to role binding and searchable role model selection', () => {
   assert.match(APP, /\/api\/providers\/discover/);
   assert.match(APP, /\/api\/providers\/create/);
+  assert.match(APP, /\/api\/cli-oauth\/start/);
+  assert.match(APP, /\/api\/cli-oauth\/status/);
+  assert.match(APP, /\/api\/cli-oauth\/input/);
   assert.match(APP, /data-discovery-role/);
   assert.match(APP, /data-field=\"model-search\"/);
   assert.match(APP, /\/api\/bindings\/save/);

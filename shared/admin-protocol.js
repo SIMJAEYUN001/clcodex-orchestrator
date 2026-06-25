@@ -8,6 +8,11 @@ export const ADMIN_RPC_METHODS = Object.freeze([
   'providers.sync',
   'providers.toggle',
   'providers.delete',
+  'cliOAuth.status',
+  'cliOAuth.start',
+  'cliOAuth.poll',
+  'cliOAuth.input',
+  'cliOAuth.stop',
   'bindings.save',
   'policy.save',
 ]);
@@ -24,6 +29,11 @@ const ROUTES = new Map([
   ['POST /api/providers/sync', 'providers.sync'],
   ['POST /api/providers/toggle', 'providers.toggle'],
   ['POST /api/providers/delete', 'providers.delete'],
+  ['POST /api/cli-oauth/status', 'cliOAuth.status'],
+  ['POST /api/cli-oauth/start', 'cliOAuth.start'],
+  ['POST /api/cli-oauth/poll', 'cliOAuth.poll'],
+  ['POST /api/cli-oauth/input', 'cliOAuth.input'],
+  ['POST /api/cli-oauth/stop', 'cliOAuth.stop'],
   ['POST /api/bindings/save', 'bindings.save'],
   ['POST /api/policy/save', 'policy.save'],
 ]);

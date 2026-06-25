@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { promisify } from 'node:util';
 import { ROLES } from '../roles.js';
+import { cliOauthEnvironment as cliOauthDiscoveryEnv, harnessExecutable } from './cli-oauth.js';
 
 const execFileAsync = promisify(execFile);
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$/;
@@ -14,12 +14,7 @@ const CLAUDE_CODE_OAUTH_MODELS = Object.freeze([
   { modelKey: 'sonnet', displayName: 'sonnet', metadata: { source: 'claude-code-oauth' } },
   { modelKey: 'haiku', displayName: 'haiku', metadata: { source: 'claude-code-oauth' } },
 ]);
-const CLI_OAUTH_DISCOVERY_ENV = [
-  'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'COLORTERM', 'TZ',
-  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
-  'HOME', 'USERPROFILE', 'CODEX_HOME',
-  'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT',
-];
+
 
 function profileName(value) {
   const result = String(value || '').trim();
@@ -148,17 +143,6 @@ function extractCodexDebugModels(payload) {
       displayName: item.display_name || item.displayName || item.slug || item.id || item.name,
       metadata: { source: 'codex-debug-models', supportedInApi: item.supported_in_api },
     })));
-}
-
-function harnessExecutable(harness, harnessRoot) {
-  if (!harnessRoot) return harness;
-  return path.join(path.resolve(harnessRoot), 'bin', process.platform === 'win32' ? `${harness}.cmd` : harness);
-}
-
-function cliOauthDiscoveryEnv(parentEnv = process.env) {
-  const env = {};
-  for (const key of CLI_OAUTH_DISCOVERY_ENV) if (parentEnv[key]) env[key] = parentEnv[key];
-  return env;
 }
 
 async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync, harnessRoot = null, parentEnv = process.env } = {}) {

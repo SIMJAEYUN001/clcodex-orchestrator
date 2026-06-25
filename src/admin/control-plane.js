@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { assertRpcMethod } from '../../shared/admin-protocol.js';
 import { ORCHESTRATION_PRESETS } from '../orchestration/policy-store.js';
+import { CliOauthManager } from '../providers/cli-oauth.js';
 import { ROLES } from '../roles.js';
 
 function requiredId(value, label) {
@@ -16,6 +17,7 @@ export class AdminControlPlane {
     policyStore = null,
     specStore = null,
     harnessRuntime = null,
+    cliOauthManager = null,
     sessionTtlMs = 300_000,
   }) {
     this.service = service;
@@ -23,6 +25,7 @@ export class AdminControlPlane {
     this.policyStore = policyStore;
     this.specStore = specStore;
     this.harnessRuntime = harnessRuntime;
+    this.cliOauthManager = cliOauthManager || new CliOauthManager({ harnessRoot: service?.harnessRoot || null });
     this.sessionTtlMs = sessionTtlMs;
     this.sessions = new Map();
   }
@@ -131,6 +134,18 @@ export class AdminControlPlane {
     return { ok: true, provider: configured.provider };
   }
 
+  async cliOauth(method, session, body) {
+    const needsHarness = method === 'cliOAuth.status' || method === 'cliOAuth.start';
+    const harness = needsHarness ? requiredId(body.harness, 'harness') : body.harness ? requiredId(body.harness, 'harness') : null;
+    if (harness && !['codex', 'claude'].includes(harness)) throw new Error('Harness must be codex or claude');
+    if (method === 'cliOAuth.status') return { ok: true, status: await this.cliOauthManager.status(harness) };
+    if (method === 'cliOAuth.start') return { ok: true, session: this.cliOauthManager.start(harness, { actorId: session.userId }) };
+    if (method === 'cliOAuth.poll') return { ok: true, session: this.cliOauthManager.describe(requiredId(body.sessionId, 'sessionId')) };
+    if (method === 'cliOAuth.input') return { ok: true, session: this.cliOauthManager.input(requiredId(body.sessionId, 'sessionId'), String(body.data || '')) };
+    if (method === 'cliOAuth.stop') return { ok: true, session: this.cliOauthManager.stop(requiredId(body.sessionId, 'sessionId')) };
+    throw new Error(`Unsupported CLI OAuth action: ${method}`);
+  }
+
   async providerAction(method, session, body) {
     const providerId = requiredId(body.providerId, 'providerId');
     if (method === 'providers.test') {
@@ -202,12 +217,14 @@ export class AdminControlPlane {
     if (rpcMethod === 'providers.discover') return this.providerDiscover(session, body);
     if (rpcMethod === 'providers.create') return this.providerCreate(session, body);
     if (rpcMethod.startsWith('providers.')) return this.providerAction(rpcMethod, session, body);
+    if (rpcMethod.startsWith('cliOAuth.')) return this.cliOauth(rpcMethod, session, body);
     if (rpcMethod === 'bindings.save') return this.saveBinding(session, body);
     if (rpcMethod === 'policy.save') return this.savePolicy(session, body);
     throw new Error(`Unsupported admin RPC method: ${rpcMethod}`);
   }
 
   close() {
+    this.cliOauthManager?.close?.();
     this.sessions.clear();
   }
 }
