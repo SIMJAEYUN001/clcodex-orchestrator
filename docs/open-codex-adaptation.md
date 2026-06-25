@@ -2,7 +2,7 @@
 
 Reference: `https://github.com/ymichael/open-codex`
 
-`open-codex` is an Ink/React terminal application. clcodex does not embed or install that fork. It retains the official project-local Codex CLI and adapts the following interaction concepts to the Discord-administered web Control Center.
+`open-codex` is an Ink/React terminal application. clcodex does not embed or install that fork. It retains the official project-local Codex CLI and adapts the following interaction concepts to the Discord Activity 기반 Control Center.
 
 | Open Codex interaction | clcodex adaptation |
 | --- | --- |
@@ -42,3 +42,8 @@ The Control Center adds a layer that Open Codex does not provide:
 ## Source boundary
 
 No Open Codex source file is copied into this project. The implementation is an independent browser UI that uses the same general interaction patterns. This keeps the official Codex and Claude Code harness boundary intact.
+
+
+## 전송 경계
+
+Control Center는 공개된 로컬 웹 서버가 아니라 정적 Discord Activity와 outbound-only E2EE relay를 사용합니다. Open Codex의 UI 개념만 참고하며, provider credential과 orchestration RPC는 relay에서 복호화되지 않습니다.

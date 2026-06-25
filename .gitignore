@@ -1,7 +1,11 @@
 node_modules/
+dist/
 .env
+.env.relay
 .runtime/
 .harness/
 coverage/
+activity/public/config.json
+activity/public/control-center-app.js
 *.log
 .DS_Store

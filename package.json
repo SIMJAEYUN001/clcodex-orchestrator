@@ -1,25 +1,36 @@
 {
   "name": "clcodex-orchestrator",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
-  "description": "Four-bot Discord control plane with an Open Codex-inspired admin UI, isolated Claude Code/Codex runtimes, and spec-driven orchestration.",
+  "description": "Four-bot Discord control plane with an outbound-only E2EE Activity relay, isolated Claude Code/Codex runtimes, and spec-driven orchestration.",
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
     "harness:install": "node scripts/install-harnesses.mjs",
+    "admin:provision": "node --env-file-if-exists=.env scripts/provision-admin-relay.mjs",
+    "activity:assets": "node scripts/prepare-activity-assets.mjs",
+    "activity:dev": "npm run activity:assets && vite --config activity/vite.config.js",
+    "activity:build": "npm run activity:assets && vite build --config activity/vite.config.js",
+    "relay": "node --env-file-if-exists=.env.relay relay/index.js",
+    "relay:dev": "node --watch --env-file-if-exists=.env.relay relay/index.js",
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
     "test": "node --test test/*.test.js",
     "check:syntax": "node scripts/check-syntax.mjs",
-    "check": "npm run check:syntax && npm test"
+    "check": "npm run check:syntax && npm test && npm run activity:build"
   },
   "dependencies": {
+    "@discord/embedded-app-sdk": "^2.5.0",
     "discord.js": "^14.26.4",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "ws": "^8.21.0"
   },
   "overrides": {
     "undici": "6.27.0"
+  },
+  "devDependencies": {
+    "vite": "^8.1.0"
   }
 }

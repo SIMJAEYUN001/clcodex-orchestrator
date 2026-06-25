@@ -30,6 +30,29 @@ function positiveInteger(name, fallback) {
 }
 
 
+
+function choice(name, values, fallback) {
+  const value = String(process.env[name] || fallback).trim();
+  if (!values.includes(value)) throw new Error(`${name} must be one of: ${values.join(', ')}`);
+  return value;
+}
+
+function secureWebSocketUrl(name, requiredValue = false) {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    if (requiredValue) throw new Error(`Missing required environment variable: ${name}`);
+    return null;
+  }
+  const url = new URL(raw);
+  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && ['127.0.0.1', 'localhost', '::1'].includes(url.hostname))) {
+    throw new Error(`${name} must use wss://, except loopback development may use ws://`);
+  }
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error(`${name} must be a WebSocket origin without credentials, path, query, or fragment`);
+  }
+  return url.origin;
+}
+
 function frameAncestors(value) {
   const raw = String(value || "'none'").trim();
   const tokens = raw.split(/\s+/).filter(Boolean);
@@ -74,6 +97,7 @@ export function loadRoleBotTokens(environment = process.env) {
 
 export function loadConfig() {
   const runtimeRoot = path.resolve(process.env.RUNTIME_ROOT || '.runtime');
+  const adminUiMode = choice('ADMIN_UI_MODE', ['activity-relay', 'legacy-loopback', 'disabled'], 'activity-relay');
   return {
     guildId: required('DISCORD_GUILD_ID'),
     forumChannelId: process.env.DISCORD_FORUM_CHANNEL_ID?.trim() || null,
@@ -91,6 +115,17 @@ export function loadConfig() {
     providerGatewayHost: process.env.PROVIDER_GATEWAY_HOST?.trim() || '127.0.0.1',
     providerGatewayPort: nonNegativeInteger('PROVIDER_GATEWAY_PORT', 0),
     providerGatewayRouteTtlMs: positiveInteger('PROVIDER_GATEWAY_ROUTE_TTL_MS', 86_400_000),
+    adminUiMode,
+    adminGrantTtlMs: positiveInteger('ADMIN_GRANT_TTL_MS', 60_000),
+    adminSessionTtlMs: positiveInteger('ADMIN_SESSION_TTL_MS', 300_000),
+    adminRelayWsUrl: secureWebSocketUrl('ADMIN_RELAY_WS_URL', adminUiMode === 'activity-relay'),
+    adminRelayInstallationId: adminUiMode === 'activity-relay' ? required('ADMIN_RELAY_INSTALLATION_ID') : null,
+    adminRelayDeviceToken: adminUiMode === 'activity-relay' ? required('ADMIN_RELAY_DEVICE_TOKEN') : null,
+    adminRelayDeviceKeyPath: path.resolve(process.env.ADMIN_RELAY_DEVICE_KEY_PATH || path.join(runtimeRoot, 'admin-relay', 'device-signing-private.jwk')),
+    adminRelayReconnectMinMs: positiveInteger('ADMIN_RELAY_RECONNECT_MIN_MS', 1_000),
+    adminRelayReconnectMaxMs: positiveInteger('ADMIN_RELAY_RECONNECT_MAX_MS', 30_000),
+    adminRelayStartupTimeoutMs: positiveInteger('ADMIN_RELAY_STARTUP_TIMEOUT_MS', 15_000),
+    adminRelayMaxPayloadBytes: positiveInteger('ADMIN_RELAY_MAX_PAYLOAD_BYTES', 1_000_000),
     adminSetupHost: process.env.ADMIN_SETUP_HOST?.trim() || '127.0.0.1',
     adminSetupPort: nonNegativeInteger('ADMIN_SETUP_PORT', 8_787),
     adminSetupPublicUrl: process.env.ADMIN_SETUP_PUBLIC_URL?.trim() || null,
@@ -104,4 +139,4 @@ export function loadConfig() {
   };
 }
 
-export const __test = { jsonStringArray, nonNegativeInteger, frameAncestors };
+export const __test = { jsonStringArray, nonNegativeInteger, frameAncestors, choice, secureWebSocketUrl };

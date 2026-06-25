@@ -14,8 +14,8 @@
 
 | 명령 | 설명 |
 | --- | --- |
-| `/admin` | 통합 Control Center: provider, Codex, Claude Code, 역할 model, orchestration, session/audit |
-| `/providers panel` | Control Center 링크를 여는 provider 빠른 진입점 |
+| `/admin` | Discord Activity Control Center 직접 실행: provider, Codex, Claude Code, 역할 model, orchestration, session/audit |
+| `/providers panel` | 동일한 Discord Activity를 여는 provider 빠른 진입점 |
 | `/providers audit` | provider 설정 변경 감사 로그 |
 | `/role-models panel` | 역할별 global/thread provider/model binding |
 | `/role-models status` | 현재 채널의 실효 역할 routing 확인 |
@@ -25,7 +25,7 @@
 | `/project bind` | 서버의 기존 Git 프로젝트 연결 |
 | `/project delete` | 프로젝트 연결 또는 관리 대상 파일 제거 |
 
-`/admin`을 포함한 위 명령은 서버 소유자 또는 Discord `Administrator`만 실행할 수 있습니다. DM에서는 비활성화되고 worker application에는 등록되지 않습니다.
+`/admin`을 포함한 위 명령은 서버 소유자 또는 Discord `Administrator`만 실행할 수 있습니다. `/admin`은 URL 대신 Activity를 직접 실행하며, DM에서는 비활성화되고 worker application에는 등록되지 않습니다.
 
 ### 사양 기반 실행
 

@@ -21,16 +21,26 @@
 
 이 검사는 application-level SSRF 완화입니다. 신뢰하지 않는 네트워크에서 운영할 때는 egress firewall도 함께 적용해야 합니다.
 
-## Discord 권한 경계
+## Discord Activity·relay 권한 경계
 
 - 네 역할은 서로 다른 Discord bot account를 사용합니다.
 - 관리 명령은 오케스트레이터 application에만 등록합니다.
 - `/admin`, `/providers`, `/role-models`, `/role-bots`, `/project`는 guild owner 또는 `Administrator`만 사용할 수 있습니다.
-- `/admin` 링크는 ephemeral로 발급하고 관리 session은 최초 호출자, guild, 현재 thread scope를 고정합니다.
-- URL token은 fragment로 전달하고 server session map에는 SHA-256 digest만 저장합니다.
-- Control Center API는 bearer 인증, no-store 응답, CSP와 frame-ancestor 정책을 적용합니다.
-- 관리 button/select/form session은 최초 호출자와 guild를 고정합니다.
-- credential 원문은 Discord modal 또는 message로 받지 않습니다.
+- `/admin`은 URL을 출력하지 않고 Discord `LAUNCH_ACTIVITY` callback으로 Activity를 실행합니다.
+- `/admin` grant는 guild, user, forum thread에 결합되고 한 번만 소비됩니다.
+- Activity OAuth authorization code는 PKCE(S256)를 사용합니다.
+- Relay HTTP와 Activity WebSocket은 `RELAY_ACTIVITY_ORIGINS`의 exact HTTPS Origin만 허용합니다.
+- 로컬 device WebSocket은 installation별 장기 random bearer token으로 인증합니다.
+- Activity는 provision 시 pin한 ECDSA P-256 device public key와 fingerprint를 검증합니다.
+- Activity와 local device는 ephemeral ECDH P-256 + HKDF-SHA256으로 AES-256-GCM key를 합의합니다.
+- RPC의 session, direction, sequence는 AEAD additional data에 포함되며 재전송·재정렬을 거부합니다.
+- Relay는 API key, Basic Auth password, RPC method/params/result를 복호화하지 못합니다.
+- Activity 연결 시와 각 RPC 실행 직전에 local bot이 Discord guild member의 현재 Administrator 권한을 강제 조회합니다.
+- credential 원문은 Discord modal/message, relay log/storage 또는 browser localStorage에 넣지 않습니다.
+
+Relay는 완전한 익명화 계층이 아닙니다. installation ID, Discord user ID, guild/channel ID, 연결 metadata, ciphertext 크기와 timing은 볼 수 있으며 Discord OAuth exchange 중 access token을 메모리상 처리합니다. Provider credential과 관리 payload의 기밀성은 Activity↔local device E2EE가 담당합니다.
+
+로컬 오케스트레이터에는 관리용 inbound HTTP listener가 없습니다. 공개 relay는 local host로 연결하지 못하고 local host가 먼저 outbound WSS 연결을 설정합니다. 자세한 배포 및 key rotation은 [Activity relay](activity-relay.md)를 참고합니다.
 
 ## Repository 권한 경계
 

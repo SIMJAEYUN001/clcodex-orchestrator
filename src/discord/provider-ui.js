@@ -37,10 +37,11 @@ function addText(modal, { id, label, value, placeholder, style = TextInputStyle.
 }
 
 export class ProviderAdminUi {
-  constructor({ guildId, service, store, adminSetupServer = null }) {
+  constructor({ guildId, service, store, activityLauncher = null, adminSetupServer = null }) {
     this.guildId = guildId;
     this.service = service;
     this.store = store;
+    this.activityLauncher = activityLauncher;
     this.adminSetupServer = adminSetupServer;
     this.ui = new UiSessionStore('pui');
   }
@@ -181,14 +182,20 @@ export class ProviderAdminUi {
       return interaction.update(this.panel(session));
     }
     if (action === 'setup-link') {
-      if (!this.adminSetupServer) throw new Error('Control Center 서버가 연결되지 않았습니다.');
+      if (this.activityLauncher) {
+        return this.activityLauncher.launch(interaction, {
+          threadId: interaction.channel?.isThread?.() ? interaction.channelId : null,
+        });
+      }
+      if (!this.adminSetupServer) throw new Error('Control Center가 연결되지 않았습니다.');
       const issued = this.adminSetupServer.issueSession({
         guildId: session.guildId,
         userId: interaction.user.id,
         threadId: interaction.channel?.isThread?.() ? interaction.channelId : null,
       });
       return interaction.reply({
-        content: `아래 URL은 관리자 전용이며 제한 시간 후 만료됩니다. 공급자, Codex, Claude Code, 역할 모델과 전체 오케스트레이션을 관리합니다.\n${issued.url}`,
+        content: `레거시 loopback 관리 URL입니다.
+${issued.url}`,
         flags: EPHEMERAL,
       });
     }

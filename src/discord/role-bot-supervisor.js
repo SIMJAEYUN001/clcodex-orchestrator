@@ -3,6 +3,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  PermissionFlagsBits,
   REST,
   Routes,
 } from 'discord.js';
@@ -146,6 +147,16 @@ export class RoleBotSupervisor {
       if (await handler(interaction, role)) return true;
     }
     return false;
+  }
+
+  async isAdministrator({ guildId, userId }) {
+    if (String(guildId) !== String(this.guildId)) return false;
+    const client = this.clients.get('orchestrator');
+    if (!client?.isReady?.()) return false;
+    const guild = await client.guilds.fetch(String(guildId));
+    if (String(guild.ownerId) === String(userId)) return true;
+    const member = await guild.members.fetch({ user: String(userId), force: true });
+    return member.permissions.has(PermissionFlagsBits.Administrator);
   }
 
   async send(role, channelId, payload) {

@@ -1,5 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AdminActivityLauncher } from './admin/activity-launcher.js';
+import { AdminControlPlane } from './admin/control-plane.js';
+import { RelayDeviceIdentity } from './admin/device-identity.js';
+import { AdminGrantStore } from './admin/grant-store.js';
+import { AdminRelayClient } from './admin/relay-client.js';
 import { AdminSetupServer } from './admin/setup-server.js';
 import { AdminControlUi } from './discord/admin-control-ui.js';
 import { loadConfig } from './config.js';
@@ -71,18 +76,50 @@ const harnessRuntime = new ManagedHarnessRuntime({
   policyStore,
 });
 
-const adminSetupServer = new AdminSetupServer({
+const controlPlane = new AdminControlPlane({
   service: providerService,
   store: providerStore,
   policyStore,
   specStore,
   harnessRuntime,
-  host: config.adminSetupHost,
-  port: config.adminSetupPort,
-  publicUrl: config.adminSetupPublicUrl,
-  sessionTtlMs: config.adminSetupSessionTtlMs,
-  frameAncestors: config.adminFrameAncestors,
+  sessionTtlMs: config.adminSessionTtlMs,
 });
+
+const adminSetupServer = config.adminUiMode === 'legacy-loopback'
+  ? new AdminSetupServer({
+      controlPlane,
+      service: providerService,
+      host: config.adminSetupHost,
+      port: config.adminSetupPort,
+      publicUrl: config.adminSetupPublicUrl,
+      sessionTtlMs: config.adminSetupSessionTtlMs,
+      frameAncestors: config.adminFrameAncestors,
+    })
+  : null;
+
+const adminGrantStore = config.adminUiMode === 'activity-relay'
+  ? new AdminGrantStore({ grantTtlMs: config.adminGrantTtlMs, sessionTtlMs: config.adminSessionTtlMs })
+  : null;
+const relayDeviceIdentity = config.adminUiMode === 'activity-relay'
+  ? new RelayDeviceIdentity({ privateKeyPath: config.adminRelayDeviceKeyPath })
+  : null;
+const adminRelayClient = config.adminUiMode === 'activity-relay'
+  ? new AdminRelayClient({
+      url: config.adminRelayWsUrl,
+      installationId: config.adminRelayInstallationId,
+      deviceToken: config.adminRelayDeviceToken,
+      identity: relayDeviceIdentity,
+      grantStore: adminGrantStore,
+      controlPlane,
+      authorizeAdministrator: (identity) => roleBots.isAdministrator(identity),
+      reconnectMinMs: config.adminRelayReconnectMinMs,
+      reconnectMaxMs: config.adminRelayReconnectMaxMs,
+      maxPayloadBytes: config.adminRelayMaxPayloadBytes,
+    })
+  : null;
+const activityLauncher = adminRelayClient
+  ? new AdminActivityLauncher({ grantStore: adminGrantStore, relayClient: adminRelayClient })
+  : null;
 
 const specRepository = new SpecRepository({ store: specStore });
 const workspaceManager = new GitWorkspaceManager({
@@ -113,12 +150,15 @@ specCoordinator = new SpecCoordinator({
 const adminControlUi = new AdminControlUi({
   guildId: config.guildId,
   forumChannelId: config.forumChannelId,
+  activityLauncher,
   adminSetupServer,
+  mode: config.adminUiMode,
 });
 const providerUi = new ProviderAdminUi({
   guildId: config.guildId,
   service: providerService,
   store: providerStore,
+  activityLauncher,
   adminSetupServer,
 });
 const roleModelUi = new RoleModelAdminUi({
@@ -138,8 +178,10 @@ const specUi = new SpecCommandUi({
 roleBots.setOrchestratorHandlers([helpUi, adminControlUi, providerUi, roleModelUi, specUi]);
 
 export {
+  adminRelayClient,
   adminSetupServer,
   commandToolServer,
+  controlPlane as adminControlPlane,
   harnessRuntime as managedHarnessRuntime,
   providerGateway,
   providerResolver,
@@ -158,9 +200,12 @@ async function shutdown(signal, exitCode = 0) {
   roleBots.destroy();
   await Promise.allSettled([
     specCoordinator.close(),
-    adminSetupServer.close(),
+    adminRelayClient?.stop(),
+    adminSetupServer?.close(),
     providerGateway.close(),
   ]);
+  adminGrantStore?.clear();
+  controlPlane.close();
   providerStore.close();
   specStore.close();
   policyStore.close();
@@ -170,13 +215,27 @@ async function shutdown(signal, exitCode = 0) {
 process.once('SIGINT', () => void shutdown('SIGINT'));
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 
+function withTimeout(promise, milliseconds, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${milliseconds}ms`)), milliseconds);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 try {
   await providerGateway.start();
-  await adminSetupServer.start();
+  if (adminSetupServer) await adminSetupServer.start();
   await specCoordinator.initialize();
   const identities = await roleBots.start();
+  if (adminRelayClient) {
+    await withTimeout(adminRelayClient.start(), config.adminRelayStartupTimeoutMs, 'Admin relay startup');
+  }
   const connected = Object.values(identities).map((item) => `${item.role}:${item.tag}`).join(', ');
   console.log(`Role bot supervisor ready: ${connected}`);
+  console.log(`Admin UI mode: ${config.adminUiMode}${adminRelayClient ? ` · device ${relayDeviceIdentity.metadata().fingerprint}` : ''}`);
 } catch (error) {
   console.error('Startup failed:', error instanceof Error ? error.message : String(error));
   await shutdown('startup-error', 1);

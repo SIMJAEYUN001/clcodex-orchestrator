@@ -62,4 +62,4 @@ thread: scope_type=thread, scope_id=Discord thread ID
 
 ## 통합 Control Center
 
-`/admin`은 provider/model 선택뿐 아니라 Codex approval/sandbox/reasoning, Claude permission/effort/tools, 전체 orchestration preset을 한 화면에서 관리합니다. `/role-models panel`은 Discord component만으로 빠르게 binding을 변경하는 보조 경로입니다.
+`/admin`은 outbound-only E2EE relay를 사용하는 Discord Activity로 열립니다. provider/model 선택뿐 아니라 Codex approval/sandbox/reasoning, Claude permission/effort/tools, 전체 orchestration preset을 한 화면에서 관리합니다. `/role-models panel`은 Discord component만으로 빠르게 binding을 변경하는 보조 경로입니다.

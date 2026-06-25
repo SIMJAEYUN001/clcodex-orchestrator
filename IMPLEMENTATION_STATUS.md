@@ -18,14 +18,18 @@
 
 ### 통합 Control Center
 
-- `/admin`으로 발급하는 Administrator 전용 단기 관리 URL
+- `/admin` interaction callback으로 직접 실행하는 Administrator 전용 Discord Activity
 - Open Codex식 검색 가능한 model selector와 현재 선택값 우선 정렬
 - 개요, Provider, Codex, Claude Code, 오케스트레이션, 세션·이력, 도움말 탭
 - server global 및 forum-thread override와 상속 상태 표시
 - 실행 중 session의 provider/model/runtime snapshot 고정
 - Provider와 orchestration 설정 감사 로그
-- CSP, no-store, fragment token, SHA-256 session digest
-- 선택적 Discord Activity iframe 배포를 위한 exact `ADMIN_FRAME_ANCESTORS`
+- local inbound 관리 HTTP listener가 없는 outbound-only WSS device
+- Discord OAuth authorization code + PKCE(S256)
+- exact Activity Origin, installation device token, one-use guild/user/thread grant
+- pinned ECDSA device identity + ephemeral ECDH/HKDF/AES-256-GCM RPC
+- RPC별 Administrator 권한 재검사와 sequence replay 방지
+- relay가 provider credential과 RPC plaintext를 해석하지 않는 opaque forwarding
 
 ### Provider와 역할 모델 UI
 
@@ -96,7 +100,7 @@
 ## 검증
 
 - JavaScript syntax 검사
-- Node test suite 49개
+- Node test suite 57개
 - production dependency audit
 - project-local harness 설치 스크립트
 - ZIP 무결성 검사는 release artifact 생성 시 수행
@@ -108,8 +112,9 @@
 - 각 bot의 channel/thread/application-command 권한
 - proxy endpoint와 실제 model ID
 - API key 또는 secret reference
-- 원격 관리자 UI 사용 시 HTTPS reverse proxy와 추가 접근 통제
-- Discord Activity로 embed할 경우 Activity OAuth와 guild member 권한 검증
+- 정적 Discord Activity HTTPS origin과 URL Mapping
+- HTTPS/WSS public relay 및 Discord OAuth client secret
+- relay installation ID/device token과 local device signing key
 
 ## 의도적으로 제외
 

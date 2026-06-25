@@ -141,12 +141,13 @@ export class HelpUi {
     if (topic === 'control-center') {
       return embed
         .setTitle('통합 Control Center 도움말')
-        .setDescription('오케스트레이터 봇의 `/admin`으로 관리자 전용 일회성 링크를 발급합니다.')
+        .setDescription('오케스트레이터 봇의 `/admin`으로 outbound-only E2EE Discord Activity를 직접 실행합니다.')
         .addFields(
           { name: 'Providers', value: 'Bearer Token/API Key/Basic Auth, password 입력, 모델 조회, 공급자 등록과 즉시 역할 바인딩.' },
           { name: 'Codex', value: '역할별 provider/model, approval policy, sandbox, reasoning effort, verbosity, web search.' },
           { name: 'Claude Code', value: '역할별 provider/model, permission mode, effort, allowed/disallowed tools와 fallback model.' },
           { name: 'Orchestration', value: 'strict-spec/balanced/rapid/review-heavy preset, 기본 workflow, 최대 병렬 agent, 자동 실행·재개 정책.' },
+          { name: '보안 채널', value: 'URL이나 로컬 포트를 노출하지 않습니다. relay는 암호문만 전달하고 local orchestrator가 각 RPC에서 Administrator 권한을 재검사합니다.' },
           { name: '적용 시점', value: '실행 중 session은 immutable snapshot을 유지하고 새 session부터 변경값을 적용합니다.' },
         );
     }

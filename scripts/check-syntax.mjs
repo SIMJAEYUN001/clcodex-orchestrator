@@ -20,6 +20,7 @@ function check(file) {
   });
 }
 
-const files = [...await collect('src'), ...await collect('scripts'), ...await collect('test')];
+const roots = ['src', 'scripts', 'test', 'relay', 'shared', 'activity/src'];
+const files = (await Promise.all(roots.map((root) => collect(root)))).flat();
 for (const file of files) await check(file);
 console.log(`Syntax checked ${files.length} files`);
