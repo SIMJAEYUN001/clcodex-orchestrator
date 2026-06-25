@@ -50,39 +50,23 @@ async function loadConfig() {
   return applyDiscordProxyRelayOrigin(assertConfig(await response.json()));
 }
 
-function oauthRedirectUri() {
-  const url = new URL(location.href);
-  url.search = '';
-  url.hash = '';
-  return url.origin;
-}
-
 async function authorizeActivity(discordSdk, config) {
-  const base = {
+  return discordSdk.commands.authorize({
     client_id: config.discordClientId,
     response_type: 'code',
     state: crypto.randomUUID(),
     prompt: 'none',
     scope: ['identify'],
-  };
-  try {
-    return { authorization: await discordSdk.commands.authorize(base), redirectUri: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('redirect_uri')) throw error;
-    const redirectUri = oauthRedirectUri();
-    const authorization = await discordSdk.commands.authorize({ ...base, state: crypto.randomUUID(), redirect_uri: redirectUri });
-    return { authorization, redirectUri };
-  }
+  });
 }
 
 async function oauth(config, discordSdk) {
   await discordSdk.ready();
-  const { authorization, redirectUri } = await authorizeActivity(discordSdk, config);
+  const authorization = await authorizeActivity(discordSdk, config);
   const response = await fetch(`${config.relayHttpUrl}/v1/oauth/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: authorization.code, ...(redirectUri ? { redirectUri } : {}) }),
+    body: JSON.stringify({ code: authorization.code }),
     cache: 'no-store',
     referrerPolicy: 'no-referrer',
   });

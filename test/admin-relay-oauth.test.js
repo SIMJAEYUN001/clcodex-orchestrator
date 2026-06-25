@@ -90,7 +90,7 @@ test('relay rejects missing OAuth codes before contacting Discord', async () => 
   }
 });
 
-test('relay forwards an allowed redirect_uri only for the Activity authorize fallback', async () => {
+test('relay ignores web OAuth redirect_uri input for the Discord Activity server flow', async () => {
   const calls = [];
   const relay = new AdminRelayServer(config(), {
     fetchImpl: async (url, options = {}) => {
@@ -118,15 +118,16 @@ test('relay forwards an allowed redirect_uri only for the Activity authorize fal
     });
     assert.equal(response.status, 200);
     const params = new URLSearchParams(String(calls[0].options.body));
-    assert.equal(params.get('redirect_uri'), 'https://activity.example');
+    assert.equal(params.has('redirect_uri'), false);
 
-    const rejected = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
+    const accepted = await fetch(`http://127.0.0.1:${port}/v1/oauth/token`, {
       method: 'POST',
       headers: { origin: 'https://activity.example', 'content-type': 'application/json' },
       body: JSON.stringify({ code: 'one-time-code', redirectUri: 'https://attacker.example' }),
     });
-    assert.equal(rejected.status, 400);
-    assert.equal(calls.length, 2, 'disallowed redirect_uri must not reach Discord OAuth');
+    assert.equal(accepted.status, 200);
+    const secondParams = new URLSearchParams(String(calls[2].options.body));
+    assert.equal(secondParams.has('redirect_uri'), false);
   } finally {
     await relay.close();
   }
