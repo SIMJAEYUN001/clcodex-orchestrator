@@ -137,6 +137,15 @@ Discord Developer Portal에서 다음을 설정합니다.
 - OAuth client secret은 relay에만 저장
 - 오케스트레이터 application이 `/admin` command를 보유
 
+`/admin`이 Discord에서 `상호작용 실패`로 끝나고 오케스트레이터 로그에 다음 오류가 남으면, 서버나 relay 문제가 아니라 Discord application에 Embedded App/Activity 플래그가 붙지 않은 상태입니다.
+
+```text
+Cannot use this interaction callback if the application does not have the EMBEDDED flag
+code: 50234
+```
+
+Developer Portal의 Activities/Embedded App 설정에서 Activity 기능을 활성화하고 URL Mapping을 저장한 뒤 다시 `/admin`을 실행합니다. `/admin` 명령이 봇까지 도달해도 이 플래그가 없으면 Discord API가 `interaction.launchActivity()` callback 자체를 거부합니다.
+
 ## Relay 배포
 
 `.runtime/admin-relay/relay.env` 또는 `.env.relay.example`을 기준으로 환경을 설정합니다.
@@ -159,6 +168,24 @@ npm run relay
 ```
 
 Relay process 자체는 기본적으로 loopback에 bind합니다. Cloudflare, Fly.io, Render, reverse proxy 또는 다른 TLS platform에서 다음 endpoint를 HTTPS/WSS로 노출합니다.
+
+Cloudflare proxy를 쓰는 self-hosted origin에서는 먼저 클라우드 보안그룹/VCN과 OS firewall에서 `80/tcp`, `443/tcp` ingress를 열어야 합니다. Cloudflare `522`는 대개 Cloudflare가 origin TCP 연결을 만들 수 없는 상태입니다. Cloudflare가 origin TLS handshake에서 `525`를 반환하면 origin 인증서가 없거나 Cloudflare SSL mode와 맞지 않는 상태입니다. Caddy를 Cloudflare 뒤 origin으로만 둘 때는 예를 들어 `tls internal`로 origin TLS를 제공하거나, DNS-only 상태에서 공인 ACME 인증서를 먼저 발급한 뒤 proxy를 켭니다.
+
+```caddyfile
+activity.example.com {
+  tls internal
+  root * /var/www/activity
+  file_server
+  try_files {path} /index.html
+}
+
+relay.example.com {
+  tls internal
+  reverse_proxy 127.0.0.1:8790
+}
+```
+
+다음 endpoint가 공개 HTTPS/WSS로 노출되어야 합니다.
 
 ```text
 GET  /health
