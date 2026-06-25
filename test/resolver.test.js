@@ -13,6 +13,7 @@ function selected(harness, authStyle) {
       harness,
       baseUrl: 'http://127.0.0.1:8045',
       authStyle,
+      authType: authStyle,
       revision: 3,
     },
     model: harness === 'claude' ? 'glm-5.2' : 'gpt-model',
@@ -44,4 +45,22 @@ test('Codex custom provider config references a dedicated environment variable o
   assert.match(config, /requires_openai_auth = false/);
   assert.equal(config.includes('do-not-persist'), false);
   assert.equal(launch.env.OPENAI_API_KEY, undefined);
+});
+
+
+test('OAuth profiles launch the CLI directly without gateway token or proxy credentials', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'clcodex-launch-'));
+  const home = mkdtempSync(path.join(os.tmpdir(), 'clcodex-oauth-home-'));
+  const launch = buildHarnessLaunch({
+    resolved: { ...selected('codex', 'oauth'), credential: null },
+    runtimeRoot: root,
+    sessionId: 's3',
+    cwd: root,
+    parentEnv: { PATH: '/usr/bin', HOME: home, OPENAI_API_KEY: 'global' },
+  });
+  assert.equal(launch.env.HOME, home);
+  assert.equal(launch.env.CODEX_HOME, path.join(home, '.codex'));
+  assert.equal(launch.env.CLCODEX_GATEWAY_TOKEN, undefined);
+  assert.equal(launch.env.OPENAI_API_KEY, undefined);
+  assert.deepEqual(launch.args, ['--model', 'gpt-model']);
 });

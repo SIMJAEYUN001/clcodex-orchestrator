@@ -41,7 +41,7 @@ export class ProviderResolver {
       binding: selected,
       profile,
       model: selected.modelKey,
-      credential: this.vault.resolve(profile.id, this.store.getSecret(profile.id)),
+      credential: profile.authType === 'oauth' ? null : this.vault.resolve(profile.id, this.store.getSecret(profile.id)),
     };
   }
 }
@@ -49,9 +49,10 @@ export class ProviderResolver {
 export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessionId, cwd, parentEnv = process.env, runtimeSettings = null }) {
   const { profile, model } = resolved;
   const roleSettings = validateRoleSettings(resolved.role || 'backend', runtimeSettings || {});
+  const oauthDirect = profile.authType === 'oauth';
   const baseUrl = gatewayRoute?.baseUrl || profile.baseUrl;
   const gatewayToken = gatewayRoute?.token || resolved.credential;
-  if (!gatewayToken) throw new Error('Harness route token is missing');
+  if (!oauthDirect && !gatewayToken) throw new Error('Harness route token is missing');
   const stateRoot = path.join(path.resolve(runtimeRoot), 'harness-state', profile.harness, profile.id, sessionId);
   const home = path.join(stateRoot, 'home');
   const env = cleanEnvironment(parentEnv);
@@ -66,12 +67,29 @@ export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessio
   env.CLCODEX_PROVIDER_ID = profile.id;
   env.CLCODEX_PROVIDER_REVISION = String(profile.revision);
   env.CLCODEX_SESSION_ID = sessionId;
-  env.CLCODEX_GATEWAY_TOKEN = gatewayToken;
+  if (!oauthDirect) env.CLCODEX_GATEWAY_TOKEN = gatewayToken;
 
   if (profile.harness === 'claude') {
     const configDir = path.join(stateRoot, 'claude-config');
     const settingsFile = path.join(configDir, 'settings.json');
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    if (oauthDirect) {
+      if (parentEnv.HOME) env.HOME = parentEnv.HOME;
+      if (parentEnv.USERPROFILE) env.USERPROFILE = parentEnv.USERPROFILE;
+      if (parentEnv.XDG_CONFIG_HOME) env.XDG_CONFIG_HOME = parentEnv.XDG_CONFIG_HOME; else delete env.XDG_CONFIG_HOME;
+      if (parentEnv.XDG_CACHE_HOME) env.XDG_CACHE_HOME = parentEnv.XDG_CACHE_HOME; else delete env.XDG_CACHE_HOME;
+      if (parentEnv.XDG_DATA_HOME) env.XDG_DATA_HOME = parentEnv.XDG_DATA_HOME; else delete env.XDG_DATA_HOME;
+      delete env.CLAUDE_CONFIG_DIR;
+      delete env.ANTHROPIC_BASE_URL;
+      delete env.ANTHROPIC_API_KEY;
+      delete env.ANTHROPIC_AUTH_TOKEN;
+      const claude = roleSettings.claude;
+      const args = ['--model', model, '--permission-mode', claude.permissionMode, '--effort', claude.effort];
+      if (claude.fallbackModel) args.push('--fallback-model', claude.fallbackModel);
+      if (claude.allowedTools.length) args.push('--allowedTools', ...claude.allowedTools);
+      if (claude.disallowedTools.length) args.push('--disallowedTools', ...claude.disallowedTools);
+      return { harness: 'claude', args, env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType };
+    }
     const settings = jsonObject(settingsFile);
     const helper = path.join(configDir, 'gateway-key-helper.sh');
     writeFileSync(helper, '#!/usr/bin/env sh\nprintf %s "$CLCODEX_GATEWAY_TOKEN"\n', { mode: 0o700 });
@@ -91,9 +109,17 @@ export function buildHarnessLaunch({ resolved, gatewayRoute, runtimeRoot, sessio
   }
 
   const codexHome = path.join(stateRoot, 'codex-home');
+  const codex = roleSettings.codex;
+  if (oauthDirect) {
+    if (parentEnv.HOME) env.HOME = parentEnv.HOME;
+    if (parentEnv.USERPROFILE) env.USERPROFILE = parentEnv.USERPROFILE;
+    if (parentEnv.CODEX_HOME) env.CODEX_HOME = parentEnv.CODEX_HOME; else if (parentEnv.HOME) env.CODEX_HOME = path.join(parentEnv.HOME, '.codex');
+    delete env.OPENAI_API_KEY;
+    delete env.OPENAI_BASE_URL;
+    return { harness: 'codex', args: ['--model', model], env, cwd, providerRevision: profile.revision, runtimeSettings: roleSettings, authType: profile.authType };
+  }
   mkdirSync(codexHome, { recursive: true, mode: 0o700 });
   const providerKey = codexProviderId(profile.id);
-  const codex = roleSettings.codex;
   const config = [
     `model = ${toml(model)}`,
     `model_provider = ${toml(providerKey)}`,

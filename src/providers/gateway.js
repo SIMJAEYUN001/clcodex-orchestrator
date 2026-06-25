@@ -45,6 +45,9 @@ function upstreamHeaders(request, profile, credential) {
   else if (profile.authType === 'api-key') headers.set(profile.authHeader || 'x-api-key', credential);
   else if (profile.authType === 'basic') {
     headers.set('authorization', `Basic ${Buffer.from(`${profile.authUsername || ''}:${credential}`, 'utf8').toString('base64')}`);
+  } else if (profile.authType === 'oauth') {
+    // Direct OAuth profiles do not normally use the gateway. Keep this branch
+    // header-neutral for defensive tests and accidental model-list probes.
   } else throw new Error(`Unsupported authentication type: ${profile.authType}`);
   if (profile.protocol === 'anthropic' && !headers.has('anthropic-version')) headers.set('anthropic-version', '2023-06-01');
   return headers;

@@ -15,7 +15,11 @@ test('provider form keeps authentication and credential separate and uses one in
   assert.match(HTML, /<option value="bearer">Bearer Token<\/option>/);
   assert.match(HTML, /<option value="api-key">API Key<\/option>/);
   assert.match(HTML, /<option value="basic">Basic Auth<\/option>/);
+  assert.match(HTML, /<option value="oauth">CLI OAuth 로그인<\/option>/);
   assert.match(HTML, /id="credential"[^>]+type="password"/);
+  assert.match(HTML, /id="endpoint_url"[^>]+type="url"/);
+  assert.equal(/id="models_path"/.test(HTML), false);
+  assert.equal(/id="base_url"/.test(HTML), false);
   assert.match(HTML, /id="initial_model"[^>]+type="text"[^>]+placeholder="예: gpt-4o"/);
   assert.equal(/textarea[^>]+id="initial_model"/.test(HTML), false);
 });

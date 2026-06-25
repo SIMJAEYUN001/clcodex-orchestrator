@@ -8,7 +8,9 @@ test('provider setup form uses an authentication dropdown and a separate passwor
   assert.match(html, /<option value="bearer">Bearer Token<\/option>/);
   assert.match(html, /<option value="api-key">API Key<\/option>/);
   assert.match(html, /<option value="basic">Basic Auth<\/option>/);
+  assert.match(html, /<option value="oauth">CLI OAuth 로그인<\/option>/);
   assert.match(html, /id="credential"[^>]+type="password"/);
+  assert.match(html, /id="endpoint_url"[^>]+type="url"/);
   assert.match(html, /id="auth_header"/);
   assert.match(html, /id="auth_username"/);
 });

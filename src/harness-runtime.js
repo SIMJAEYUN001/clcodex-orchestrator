@@ -32,7 +32,7 @@ export class ManagedHarnessRuntime {
     const resolved = this.resolver.resolve({ guildId, threadId, role });
     if (!resolved) throw new Error(`No role-model binding for ${role}; run /role-models panel`);
     const id = randomUUID();
-    const gatewayRoute = this.gateway?.createRoute({
+    const gatewayRoute = resolved.profile.authType === 'oauth' ? null : this.gateway?.createRoute({
       profile: resolved.profile,
       credential: resolved.credential,
       sessionId: id,

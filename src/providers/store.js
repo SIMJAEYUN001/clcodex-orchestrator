@@ -8,7 +8,7 @@ export { ROLES } from '../roles.js';
 
 const ROLE_SET = new Set(ROLES);
 const HARNESS_SET = new Set(['claude', 'codex']);
-const AUTH_SET = new Set(['bearer', 'api-key', 'basic']);
+const AUTH_SET = new Set(['bearer', 'api-key', 'basic', 'oauth']);
 const SECRET_SET = new Set(['encrypted', 'env', 'file']);
 
 function now() { return new Date().toISOString(); }
@@ -113,7 +113,7 @@ function schemaSql() {
       protocol TEXT NOT NULL CHECK(protocol IN ('anthropic','openai')),
       base_url TEXT NOT NULL,
       models_path TEXT NOT NULL DEFAULT '/v1/models',
-      auth_type TEXT NOT NULL CHECK(auth_type IN ('bearer','api-key','basic')),
+      auth_type TEXT NOT NULL CHECK(auth_type IN ('bearer','api-key','basic','oauth')),
       auth_header TEXT,
       auth_username TEXT,
       enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
@@ -203,6 +203,8 @@ export class ProviderStore {
   migrate() {
     const existing = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_profiles'").get();
     if (existing?.sql && !existing.sql.includes('auth_type')) this.migrateLegacyProfiles();
+    const current = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_profiles'").get();
+    if (current?.sql && !current.sql.includes("'oauth'")) this.migrateProfileSchema();
     this.db.exec(schemaSql());
   }
 
@@ -234,6 +236,43 @@ export class ProviderStore {
       }
       for (const table of tables.reverse()) {
         const legacy = `${table}_legacy_auth`;
+        if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(legacy)) this.db.exec(`DROP TABLE ${legacy}`);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    } finally {
+      this.db.exec('PRAGMA foreign_keys=ON');
+    }
+  }
+
+  migrateProfileSchema() {
+    this.db.exec('PRAGMA foreign_keys=OFF');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const tables = ['provider_profiles', 'provider_models', 'provider_secrets', 'role_model_bindings', 'provider_audit', 'role_work_events'];
+      for (const table of tables) {
+        if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
+          this.db.exec(`ALTER TABLE ${table} RENAME TO ${table}_legacy_schema`);
+        }
+      }
+      this.db.exec(schemaSql());
+      this.db.exec(`INSERT INTO provider_profiles(
+        id,guild_id,name,harness,protocol,base_url,models_path,auth_type,auth_header,auth_username,
+        enabled,revision,created_by,updated_by,created_at,updated_at
+      ) SELECT id,guild_id,name,harness,protocol,base_url,models_path,auth_type,auth_header,auth_username,
+        enabled,revision,created_by,updated_by,created_at,updated_at
+        FROM provider_profiles_legacy_schema`);
+      for (const table of ['provider_models', 'provider_secrets', 'role_model_bindings', 'provider_audit', 'role_work_events']) {
+        const legacy = `${table}_legacy_schema`;
+        if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(legacy)) {
+          const columns = this.db.prepare(`PRAGMA table_info(${legacy})`).all().map((row) => row.name);
+          this.db.exec(`INSERT INTO ${table}(${columns.join(',')}) SELECT ${columns.join(',')} FROM ${legacy}`);
+        }
+      }
+      for (const table of tables.reverse()) {
+        const legacy = `${table}_legacy_schema`;
         if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(legacy)) this.db.exec(`DROP TABLE ${legacy}`);
       }
       this.db.exec('COMMIT');

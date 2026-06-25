@@ -3,7 +3,7 @@ import { ROLES } from '../roles.js';
 
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$/;
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
-const AUTH_TYPES = new Set(['bearer', 'api-key', 'basic']);
+const AUTH_TYPES = new Set(['bearer', 'api-key', 'basic', 'oauth']);
 
 function profileName(value) {
   const result = String(value || '').trim();
@@ -14,7 +14,7 @@ function profileName(value) {
 function authType(value) {
   const selected = String(value || 'bearer').trim().toLowerCase();
   const normalized = selected === 'x-api-key' || selected === 'api-key-helper' ? 'api-key' : selected;
-  if (!AUTH_TYPES.has(normalized)) throw new Error('Authentication must be bearer, api-key, or basic');
+  if (!AUTH_TYPES.has(normalized)) throw new Error('Authentication must be bearer, api-key, basic, or oauth');
   return normalized;
 }
 
@@ -30,6 +30,37 @@ function authHeader(value) {
     throw new Error('Reserved header name cannot be used for API key authentication');
   }
   return selected;
+}
+
+function splitEndpointUrl(raw, networkPolicy) {
+  const endpoint = networkPolicy.parseBaseUrl(raw);
+  const path = endpoint.pathname.replace(/\/+$/, '') || '/';
+  if (path === '/') throw new Error('Model endpoint URI must include a models path');
+  const parts = path.split('/').filter(Boolean);
+  let modelsParts;
+  let baseParts;
+  if (parts.length >= 2 && /^v\d+(?:beta)?$/i.test(parts.at(-2)) && parts.at(-1).toLowerCase() === 'models') {
+    modelsParts = parts.slice(-2);
+    baseParts = parts.slice(0, -2);
+  } else if (parts.at(-1).toLowerCase() === 'models') {
+    modelsParts = [parts.at(-1)];
+    baseParts = parts.slice(0, -1);
+  } else {
+    modelsParts = [parts.at(-1)];
+    baseParts = parts.slice(0, -1);
+  }
+  const base = new URL(endpoint.origin);
+  base.pathname = baseParts.length ? `/${baseParts.join('/')}` : '/';
+  const modelsPath = `/${modelsParts.join('/')}`;
+  return { baseUrl: base.toString().replace(/\/$/, ''), modelsPath, endpointUrl: endpoint.toString() };
+}
+
+function endpointFromProfile(profile) {
+  const base = new URL(profile.baseUrl);
+  const path = String(profile.modelsPath || '/v1/models');
+  const basePath = base.pathname.replace(/\/+$/, '');
+  base.pathname = `${basePath}${path.startsWith('/') ? path : `/${path}`}` || '/';
+  return base.toString();
 }
 
 function modelId(value) {
@@ -100,6 +131,9 @@ function credentialHeaders(profile, credential) {
     const username = String(profile.authUsername || '');
     if (!username) throw new Error('Basic authentication username is missing');
     headers.authorization = `Basic ${Buffer.from(`${username}:${credential}`, 'utf8').toString('base64')}`;
+  } else if (profile.authType === 'oauth') {
+    // OAuth mode uses the local Claude Code/Codex CLI login directly at runtime.
+    // Model discovery is intentionally not authenticated through this proxy path.
   } else throw new Error(`Unsupported provider authentication: ${profile.authType}`);
   if (profile.protocol === 'anthropic') headers['anthropic-version'] = '2023-06-01';
   return headers;
@@ -118,12 +152,16 @@ export class ProviderService {
     const selectedAuth = authType(input.authType || input.authStyle);
     const username = selectedAuth === 'basic' ? String(input.authUsername || '').trim() : null;
     if (selectedAuth === 'basic' && !username) throw new Error('Basic authentication requires a username');
+    const endpoint = input.endpointUrl
+      ? splitEndpointUrl(input.endpointUrl, this.networkPolicy)
+      : { baseUrl: input.baseUrl, modelsPath: this.networkPolicy.modelsPath(input.modelsPath || '/v1/models') };
     return {
       guildId: input.guildId,
       name: profileName(input.name),
       harness: input.harness,
-      baseUrl: input.baseUrl,
-      modelsPath: this.networkPolicy.modelsPath(input.modelsPath || '/v1/models'),
+      baseUrl: endpoint.baseUrl,
+      modelsPath: endpoint.modelsPath,
+      endpointUrl: endpoint.endpointUrl || null,
       authType: selectedAuth,
       authHeader: selectedAuth === 'api-key' ? authHeader(input.authHeader) : null,
       authUsername: username,
@@ -143,12 +181,14 @@ export class ProviderService {
   async createConfigured(input, actorId) {
     const normalized = this.normalizeProfileInput(input);
     const credential = String(input.credential || '').trim();
-    if (!credential) throw new Error(input.authType === 'basic' ? 'Password is required' : 'API key/token is required');
+    if (normalized.authType !== 'oauth' && !credential) throw new Error(input.authType === 'basic' ? 'Password is required' : 'API key/token is required');
     const url = await this.networkPolicy.assertAllowed(normalized.baseUrl);
     const profile = this.store.createProfile({ ...normalized, baseUrl: url.toString().replace(/\/$/, '') }, actorId);
     try {
-      this.store.setSecret(profile.id, this.vault.encrypted(profile.id, credential), actorId);
-      const discovered = await this.remoteModels(profile.id);
+      if (normalized.authType !== 'oauth') this.store.setSecret(profile.id, this.vault.encrypted(profile.id, credential), actorId);
+      const discovered = normalized.authType === 'oauth'
+        ? { models: normalizeModels(input.models || input.initialModel || []), status: 0, latencyMs: 0 }
+        : await this.remoteModels(profile.id);
       const combined = [...discovered.models];
       if (input.initialModel) {
         const initial = modelId(input.initialModel);
@@ -228,6 +268,10 @@ export class ProviderService {
   async discover(input) {
     const profile = this.normalizeProfileInput(input);
     const base = await this.networkPolicy.assertAllowed(profile.baseUrl);
+    if (profile.authType === 'oauth') {
+      if (!input.initialModel) throw new Error('OAuth CLI login mode requires an initial model ID');
+      return { models: normalizeModels([input.initialModel]), status: 0, latencyMs: 0 };
+    }
     return this.fetchModels({ ...profile, baseUrl: base.toString().replace(/\/$/, '') }, String(input.credential || '').trim());
   }
 
@@ -254,6 +298,7 @@ export class ProviderService {
     const configured = this.store.getSecret(providerId);
     return {
       ...profile,
+      endpointUrl: endpointFromProfile(profile),
       models: this.store.listModels(providerId),
       secret: configured ? { configured: true, mode: configured.mode, hint: configured.hint } : { configured: false, mode: null, hint: '미설정' },
     };
@@ -262,4 +307,4 @@ export class ProviderService {
   list(guildId, enabledOnly = false) { return this.store.listProfiles(guildId, enabledOnly).map((item) => this.describe(item.id)); }
 }
 
-export const __test = { normalizeModels, extractModels, modelId, authType, authStyle, authHeader, credentialHeaders };
+export const __test = { normalizeModels, extractModels, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };
