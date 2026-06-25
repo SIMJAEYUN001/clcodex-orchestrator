@@ -14,6 +14,12 @@ const CLAUDE_CODE_OAUTH_MODELS = Object.freeze([
   { modelKey: 'sonnet', displayName: 'sonnet', metadata: { source: 'claude-code-oauth' } },
   { modelKey: 'haiku', displayName: 'haiku', metadata: { source: 'claude-code-oauth' } },
 ]);
+const CLI_OAUTH_DISCOVERY_ENV = [
+  'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'COLORTERM', 'TZ',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'HOME', 'USERPROFILE', 'CODEX_HOME',
+  'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT',
+];
 
 function profileName(value) {
   const result = String(value || '').trim();
@@ -136,7 +142,7 @@ function extractModels(payload) {
 function extractCodexDebugModels(payload) {
   const source = Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : [];
   return normalizeModels(source
-    .filter((item) => item && item.visibility !== 'hidden')
+    .filter((item) => item && item.visibility === 'list')
     .map((item) => ({
       modelKey: item.slug || item.id || item.name,
       displayName: item.display_name || item.displayName || item.slug || item.id || item.name,
@@ -149,12 +155,23 @@ function harnessExecutable(harness, harnessRoot) {
   return path.join(path.resolve(harnessRoot), 'bin', process.platform === 'win32' ? `${harness}.cmd` : harness);
 }
 
-async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync, harnessRoot = null } = {}) {
+function cliOauthDiscoveryEnv(parentEnv = process.env) {
+  const env = {};
+  for (const key of CLI_OAUTH_DISCOVERY_ENV) if (parentEnv[key]) env[key] = parentEnv[key];
+  return env;
+}
+
+async function discoverCliOauthModels(harness, { execFileImpl = execFileAsync, harnessRoot = null, parentEnv = process.env } = {}) {
   const started = performance.now();
   if (harness === 'codex') {
     let stdout;
     try {
-      ({ stdout } = await execFileImpl(harnessExecutable('codex', harnessRoot), ['debug', 'models'], { timeout: 10_000, maxBuffer: 2_000_000 }));
+      ({ stdout } = await execFileImpl(harnessExecutable('codex', harnessRoot), ['debug', 'models'], {
+        timeout: 10_000,
+        maxBuffer: 2_000_000,
+        env: cliOauthDiscoveryEnv(parentEnv),
+        shell: process.platform === 'win32',
+      }));
     } catch (error) {
       throw new Error(`Codex OAuth model discovery failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -360,4 +377,4 @@ export class ProviderService {
   list(guildId, enabledOnly = false) { return this.store.listProfiles(guildId, enabledOnly).map((item) => this.describe(item.id)); }
 }
 
-export const __test = { normalizeModels, extractModels, extractCodexDebugModels, discoverCliOauthModels, harnessExecutable, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };
+export const __test = { normalizeModels, extractModels, extractCodexDebugModels, discoverCliOauthModels, harnessExecutable, cliOauthDiscoveryEnv, modelId, authType, authStyle, authHeader, credentialHeaders, splitEndpointUrl, endpointFromProfile };

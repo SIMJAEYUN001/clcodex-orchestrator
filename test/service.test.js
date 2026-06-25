@@ -22,19 +22,44 @@ test('OpenAI-compatible model list shape is accepted', () => {
 });
 
 test('Codex OAuth model discovery parses codex debug catalog from the configured harness install', async () => {
+  const expectedCommand = __test.harnessExecutable('codex', '/tmp/clcodex-harness');
   const result = await __test.discoverCliOauthModels('codex', {
     harnessRoot: '/tmp/clcodex-harness',
-    execFileImpl: async (command, args) => {
-      assert.equal(command, '/tmp/clcodex-harness/bin/codex');
+    parentEnv: {
+      PATH: '/usr/bin', HOME: '/home/user', CODEX_HOME: '/home/user/.codex',
+      OPENAI_API_KEY: 'must-not-leak', OPENAI_BASE_URL: 'https://proxy.invalid',
+      CLCODEX_GATEWAY_TOKEN: 'must-not-leak',
+    },
+    execFileImpl: async (command, args, options) => {
+      assert.equal(command, expectedCommand);
       assert.deepEqual(args, ['debug', 'models']);
+      assert.equal(options.env.PATH, '/usr/bin');
+      assert.equal(options.env.HOME, '/home/user');
+      assert.equal(options.env.CODEX_HOME, '/home/user/.codex');
+      assert.equal(options.env.OPENAI_API_KEY, undefined);
+      assert.equal(options.env.OPENAI_BASE_URL, undefined);
+      assert.equal(options.env.CLCODEX_GATEWAY_TOKEN, undefined);
+      assert.equal(options.shell, process.platform === 'win32');
       return { stdout: JSON.stringify({ models: [
         { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', supported_in_api: true },
-        { slug: 'hidden-model', visibility: 'hidden' },
+        { slug: 'hide-model', visibility: 'hide' },
+        { slug: 'none-model', visibility: 'none' },
+        { slug: 'missing-visibility-model' },
       ] }) };
     },
   });
   assert.deepEqual(result.models.map((item) => item.modelKey), ['gpt-5.5']);
   assert.equal(result.source, 'codex-cli');
+});
+
+test('Codex debug catalog exposes only models with list visibility', () => {
+  const models = __test.extractCodexDebugModels({ models: [
+    { slug: 'visible', visibility: 'list' },
+    { slug: 'hidden', visibility: 'hide' },
+    { slug: 'none', visibility: 'none' },
+    { slug: 'legacy-hidden', visibility: 'hidden' },
+  ] });
+  assert.deepEqual(models.map((item) => item.modelKey), ['visible']);
 });
 
 test('Claude OAuth model discovery returns Claude Code aliases without credentials', async () => {

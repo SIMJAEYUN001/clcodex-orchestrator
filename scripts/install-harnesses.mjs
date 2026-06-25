@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 const root = process.cwd();
-const harnessRoot = path.join(root, '.harness');
+const harnessRoot = path.resolve(process.env.HARNESS_ROOT || path.join(root, '.harness'));
 const prefix = path.join(harnessRoot, 'packages');
 const bin = path.join(harnessRoot, 'bin');
 await mkdir(prefix, { recursive: true, mode: 0o700 });
